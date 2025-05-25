@@ -1,0 +1,30 @@
+fastapi
+uvicorn[standard]
+# pydantic will be installed as a dependency (v2.x)
+
+# LangChain
+langchain # Base Langchain
+langchain-core
+langchain-community # For various integrations
+langchain-openai # Still needed if any part accidentally uses it, but we'll focus on Ollama
+langchain-ollama # For ChatOllama, OllamaEmbeddings, OllamaFunctions
+
+# Vector store
+pymongo
+chromadb
+PyPDF2
+pypdf # PyPDF2 is often a dependency or used by it
+python-pptx
+
+# Document processing
+pypdf
+python-pptx
+openpyxl
+pandas>=1.5.0
+unstructured>=0.11.2
+
+# Optional utilities
+python-multipart
+aiofiles
+requests # For Ollama service checks
+python-dotenv

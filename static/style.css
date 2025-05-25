@@ -1,0 +1,433 @@
+/* static/style.css */
+:root {
+    --bg-color-light: #f5f5f5;
+    --text-color-light: #212121;
+    --container-bg-light: #fff;
+    --border-color-light: #e0e0e0;
+    --header-bg-light: #1a73e8;
+    --header-text-light: white;
+    --user-message-bg-light: #1a73e8;
+    --user-message-text-light: white;
+    --assistant-message-bg-light: #f0f0f0; /* Slightly off-white for assistant messages */
+    --assistant-message-text-light: #212121;
+    --input-bg-light: #fff;
+    --input-border-light: #ddd;
+    --input-text-light: #212121;
+    --button-bg-light: #1a73e8;
+    --button-text-light: white;
+    --button-hover-bg-light: #1557b0;
+    --shadow-color-light: rgba(0,0,0,0.1);
+    --viz-section-bg-light: #f9f9f9;
+    --viz-section-border-light: #ddd;
+    --viz-section-header-light: #333;
+    --part-info-bg-light: #e3f2fd;
+    --part-info-border-light: #90caf9;
+    --part-info-header-light: #1976d2;
+    --part-info-text-light: #555;
+    --citation-card-bg-light: white;
+    --citation-card-border-light: #e0e0e0;
+    --citation-text-light: #555;
+    --citation-score-text-light: #888;
+    --citation-toggle-bg-light: white;
+    --citation-toggle-border-light: #ddd;
+    --citation-toggle-text-light: #666;
+    --loading-text-light: #666;
+    --error-bg-light: #fee;
+    --error-text-light: #c00;
+
+    --bg-color-dark: #121212;
+    --text-color-dark: #e0e0e0;
+    --container-bg-dark: #1e1e1e;
+    --border-color-dark: #333;
+    --header-bg-dark: #0d47a1; /* Darker blue for dark mode */
+    --header-text-dark: #e0e0e0;
+    --user-message-bg-dark: #0d47a1; /* Darker blue for user messages */
+    --user-message-text-dark: #e0e0e0;
+    --assistant-message-bg-dark: #2c2c2c; /* Dark grey for assistant messages */
+    --assistant-message-text-dark: #e0e0e0;
+    --input-bg-dark: #2c2c2c;
+    --input-border-dark: #444;
+    --input-text-dark: #e0e0e0;
+    --button-bg-dark: #1565c0; /* Slightly lighter blue button for dark mode */
+    --button-text-dark: #e0e0e0;
+    --button-hover-bg-dark: #1976d2;
+    --shadow-color-dark: rgba(0,0,0,0.4);
+    --viz-section-bg-dark: #2a2a2a;
+    --viz-section-border-dark: #444;
+    --viz-section-header-dark: #ccc;
+    --part-info-bg-dark: #1a237e; /* Dark indigo for part info */
+    --part-info-border-dark: #303f9f;
+    --part-info-header-dark: #9fa8da; /* Lighter text for part info header */
+    --part-info-text-dark: #c5cae9;
+    --citation-card-bg-dark: #2c2c2c;
+    --citation-card-border-dark: #444;
+    --citation-text-dark: #bdbdbd;
+    --citation-score-text-dark: #aaa;
+    --citation-toggle-bg-dark: #333;
+    --citation-toggle-border-dark: #555;
+    --citation-toggle-text-dark: #ccc;
+    --loading-text-dark: #aaa;
+    --error-bg-dark: #420000;
+    --error-text-dark: #ff8a80;
+
+    /* Default to light mode */
+    --bg-color: var(--bg-color-light);
+    --text-color: var(--text-color-light);
+    --container-bg: var(--container-bg-light);
+    --border-color: var(--border-color-light);
+    --header-bg: var(--header-bg-light);
+    --header-text: var(--header-text-light);
+    --user-message-bg: var(--user-message-bg-light);
+    --user-message-text: var(--user-message-text-light);
+    --assistant-message-bg: var(--assistant-message-bg-light);
+    --assistant-message-text: var(--assistant-message-text-light);
+    --input-bg: var(--input-bg-light);
+    --input-border: var(--input-border-light);
+    --input-text: var(--input-text-light);
+    --button-bg: var(--button-bg-light);
+    --button-text: var(--button-text-light);
+    --button-hover-bg: var(--button-hover-bg-light);
+    --shadow-color: var(--shadow-color-light);
+    --viz-section-bg: var(--viz-section-bg-light);
+    --viz-section-border: var(--viz-section-border-light);
+    --viz-section-header: var(--viz-section-header-light);
+    --part-info-bg: var(--part-info-bg-light);
+    --part-info-border: var(--part-info-border-light);
+    --part-info-header: var(--part-info-header-light);
+    --part-info-text: var(--part-info-text-light);
+    --citation-card-bg: var(--citation-card-bg-light);
+    --citation-card-border: var(--citation-card-border-light);
+    --citation-text: var(--citation-text-light);
+    --citation-score-text: var(--citation-score-text-light);
+    --citation-toggle-bg: var(--citation-toggle-bg-light);
+    --citation-toggle-border: var(--citation-toggle-border-light);
+    --citation-toggle-text: var(--citation-toggle-text-light);
+    --loading-text: var(--loading-text-light);
+    --error-bg: var(--error-bg-light);
+    --error-text: var(--error-text-light);
+    --three-d-viewer-bg: #e9e9e9; /* Light mode default */
+    --three-d-loading-text: #555; /* Light mode default */
+}
+
+body.dark-mode {
+    --bg-color: var(--bg-color-dark);
+    --text-color: var(--text-color-dark);
+    --container-bg: var(--container-bg-dark);
+    --border-color: var(--border-color-dark);
+    --header-bg: var(--header-bg-dark);
+    --header-text: var(--header-text-dark);
+    --user-message-bg: var(--user-message-bg-dark);
+    --user-message-text: var(--user-message-text-dark);
+    --assistant-message-bg: var(--assistant-message-bg-dark);
+    --assistant-message-text: var(--assistant-message-text-dark);
+    --input-bg: var(--input-bg-dark);
+    --input-border: var(--input-border-dark);
+    --input-text: var(--input-text-dark);
+    --button-bg: var(--button-bg-dark);
+    --button-text: var(--button-text-dark);
+    --button-hover-bg: var(--button-hover-bg-dark);
+    --shadow-color: var(--shadow-color-dark);
+    --viz-section-bg: var(--viz-section-bg-dark);
+    --viz-section-border: var(--viz-section-border-dark);
+    --viz-section-header: var(--viz-section-header-dark);
+    --part-info-bg: var(--part-info-bg-dark);
+    --part-info-border: var(--part-info-border-dark);
+    --part-info-header: var(--part-info-header-dark);
+    --part-info-text: var(--part-info-text-dark);
+    --citation-card-bg: var(--citation-card-bg-dark);
+    --citation-card-border: var(--citation-card-border-dark);
+    --citation-text: var(--citation-text-dark);
+    --citation-score-text: var(--citation-score-text-dark);
+    --citation-toggle-bg: var(--citation-toggle-bg-dark);
+    --citation-toggle-border: var(--citation-toggle-border-dark);
+    --citation-toggle-text: var(--citation-toggle-text-dark);
+    --loading-text: var(--loading-text-dark);
+    --error-bg: var(--error-bg-dark);
+    --error-text: var(--error-text-dark);
+    --three-d-viewer-bg: #2b2b2b; /* Dark mode 3D viewer background */
+    --three-d-loading-text: #ccc; /* Dark mode 3D viewer loading text */
+}
+
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body, #root {
+    height: 100%;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    transition: background-color 0.3s, color 0.3s;
+}
+
+.main-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    height: 100%;
+    max-width: 1800px;
+    margin: 0 auto;
+    box-shadow: 0 0 20px var(--shadow-color);
+    background-color: var(--container-bg);
+}
+
+.chat-column {
+    width: 60%;
+    min-width: 400px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border-color);
+}
+
+.visualization-column {
+    width: 40%;
+    min-width: 300px;
+    height: 100%;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    background-color: var(--viz-section-bg); /* Changed from #f9f9f9 */
+    overflow-y: auto;
+}
+
+.viz-section {
+     border: 1px solid var(--viz-section-border); /* Changed from #ddd */
+     border-radius: 8px;
+     padding: 15px;
+     background-color: var(--container-bg); /* Changed from #fff to match container */
+}
+.viz-section h2 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    font-size: 1.2em;
+    color: var(--viz-section-header); /* Changed from #333 */
+}
+
+#sunburst-chart-div {
+    width: 100%;
+    height: 300px;
+    max-width: 100%;
+    border-radius: 8px;
+}
+/* Plotly dark theme for Sunburst - applied via JS */
+.plotly-bg {
+    background-color: var(--container-bg) !important;
+}
+.plot-container .svg-container {
+    background-color: var(--container-bg) !important;
+}
+.g-sunburst path {
+    /* stroke: var(--border-color); /* If you want to theme path borders */
+}
+.g-sunburst text {
+    fill: var(--text-color) !important;
+}
+
+
+#three-d-viewer-container {
+    width: 100%;
+    height: 350px;
+    position: relative;
+    background-color: var(--three-d-viewer-bg);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+#three-d-viewer-container .loading-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--three-d-loading-text);
+    font-size: 1em;
+}
+
+#part-info-display-container {
+    min-height: 50px;
+    padding-top: 10px;
+}
+#part-info-display-container p {
+    font-size: 0.9em;
+    color: var(--part-info-text);
+}
+#part-info-display-container strong {
+    color: var(--part-info-header); /* Use part info header color for emphasis */
+}
+
+.theme-toggle-button {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    padding: 8px 12px;
+    background-color: var(--button-bg);
+    color: var(--button-text);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    cursor: pointer;
+    z-index: 1000;
+    font-size: 0.9em;
+}
+.theme-toggle-button:hover {
+    background-color: var(--button-hover-bg);
+}
+
+
+.header {
+    background-color: var(--header-bg);
+    color: var(--header-text);
+    padding: 20px;
+    text-align: center;
+    box-shadow: 0 2px 4px var(--shadow-color);
+    flex-shrink: 0;
+}
+
+.messages-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.message { margin-bottom: 20px; animation: fadeIn 0.3s ease-in; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.message.user { text-align: right; }
+.message-content {
+    display: inline-block;
+    max-width: 90%;
+    padding: 12px 16px;
+    border-radius: 18px;
+    background-color: var(--assistant-message-bg); /* Default to assistant for specificity */
+    color: var(--assistant-message-text);
+    box-shadow: 0 1px 2px var(--shadow-color);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+.message.user .message-content {
+    background-color: var(--user-message-bg);
+    color: var(--user-message-text);
+	max-width: 85%;
+}
+
+.in-message-chart-container {
+    width: 100%; /* Make it take full width of its parent (.message-content) */
+    /* max-width: 500px; /* Remove or increase this fixed max-width */
+    max-width: 100%; /* Or set to a larger value like 600px if 100% is too big */
+    height: 280px; /* Slightly increased height */
+    margin-top: 15px;
+    margin-bottom: 5px;
+    padding: 10px;
+    background-color: var(--assistant-message-bg-light);
+    border: 1px solid var(--border-color-light);
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    box-sizing: border-box; /* Ensure padding and border are included in width/height */
+}
+
+body.dark-mode .in-message-chart-container {
+    background-color: var(--assistant-message-bg-dark);
+    border: 1px solid var(--border-color-dark);
+}
+
+.citations-section { margin-top: 10px; display: inline-block; max-width: 100%; text-align: left; }
+.message.user .citations-section { text-align: right; }
+.citations-toggle {
+    background: var(--citation-toggle-bg);
+    border: 1px solid var(--citation-toggle-border);
+    padding: 6px 12px;
+    border-radius: 16px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--citation-toggle-text);
+    transition: all 0.2s;
+}
+.citations-toggle:hover {
+    background-color: var(--button-hover-bg); /* Consistent hover */
+    border-color: var(--button-hover-bg);
+}
+.citations-list { margin-top: 10px; text-align: left; }
+.citation-card {
+    background: var(--citation-card-bg);
+    border: 1px solid var(--citation-card-border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    max-width: calc(100% - 24px);
+    margin-left: auto;
+    margin-right: auto;
+}
+.message.user .citation-card { margin-left: auto; margin-right: 0; }
+.message.assistant .citation-card { margin-left: 0; margin-right: auto; }
+.citation-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: 500; }
+.citation-number { color: var(--header-bg); /* Use header bg color for emphasis */ }
+.citation-excerpt {
+    font-size: 14px;
+    color: var(--citation-text);
+    line-height: 1.4;
+}
+.citation-score {
+    font-size: 12px;
+    color: var(--citation-score-text);
+    margin-top: 4px;
+}
+.input-form {
+    display: flex;
+    gap: 10px;
+    padding: 20px;
+    background-color: var(--container-bg); /* Match container */
+    border-top: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+.input-form input {
+    flex: 1;
+    padding: 12px 20px;
+    border: 1px solid var(--input-border);
+    border-radius: 24px;
+    font-size: 16px;
+    outline: none;
+    transition: border-color 0.2s;
+    background-color: var(--input-bg);
+    color: var(--input-text);
+}
+.input-form input:focus { border-color: var(--button-bg); }
+.input-form button {
+    padding: 12px 24px;
+    background-color: var(--button-bg);
+    color: var(--button-text);
+    border: none;
+    border-radius: 24px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+.input-form button:hover:not(:disabled) { background-color: var(--button-hover-bg); }
+.input-form button:disabled { opacity: 0.6; cursor: not-allowed; }
+.loading { text-align: center; color: var(--loading-text); padding: 10px; }
+.error-message {
+    background-color: var(--error-bg);
+    color: var(--error-text);
+    padding: 10px; border-radius: 8px; margin: 10px;
+}
+.part-info {
+    background-color: var(--part-info-bg);
+    border: 1px solid var(--part-info-border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 10px;
+    font-size: 14px;
+    text-align: left;
+    color: var(--part-info-text); /* Added base text color for part info */
+}
+.message.user .part-info { text-align: right; }
+.part-info h4 { color: var(--part-info-header); margin-bottom: 8px; }
+.hierarchy { display: flex; align-items: center; gap: 8px; color: var(--part-info-text); flex-wrap: wrap; }
+.message.user .hierarchy { justify-content: flex-end; }
+.hierarchy span { background-color: var(--container-bg); padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color); color: var(--text-color); }

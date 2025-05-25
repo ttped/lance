@@ -1,0 +1,135 @@
+# .gitignore
+
+legacy/
+dummy_files_dir/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib60/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a CI script in a deploy hook
+#  But if you use PyInstaller somewhat regularly it's good to have them
+#  in your main .gitignore file.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# PEP 582; __pypackages__ directory
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak
+venv.bak
+venvScriptsactivate/
+
+# IDE / Editor specific files
+.vscode/
+.idea/
+*.project
+*.pydevproject
+.DS_Store
+
+# SQLite Databases (if you want to exclude the actual DB file, otherwise comment out)
+*.sqlite
+*.sqlite3
+
+# ChromaDB persistent storage (if you use a local directory and don't want to commit it)
+ollama_chroma_db/
+
+# Dummy files directory (if it only contains test/example files)
+dummy_files_dir/ #
+
+# Specific log files if any are generated
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db

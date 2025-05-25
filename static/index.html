@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LANCE - LLM Agent for Complex Engineering</title>
+    <link rel="stylesheet" href="style.css">
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+</head>
+<body>
+    <div id="root"></div>
+    <button id="theme-toggle" class="theme-toggle-button">Toggle Theme</button>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const API_URL = 'http://localhost:8000';
+
+        // Helper function to plot maintenance chart (can be outside components or a custom hook)
+        function plotMaintenanceChartInMessage(chartId, data, isDarkMode) {
+            if (data && window.Plotly) {
+                const chartDiv = document.getElementById(chartId);
+                if (!chartDiv) {
+                    console.warn(`Chart container with id ${chartId} not found for message.`);
+                    return;
+                }
+                chartDiv.innerHTML = ''; // Clear previous plot if any
+
+                const traces = [
+                    { x: data.dates, y: data.awp_counts, mode: 'lines+markers', name: 'AWP', line: { color: isDarkMode ? '#1f77b4' : '#1f77b4' }, marker: { color: isDarkMode ? '#1f77b4' : '#1f77b4' }},
+                    { x: data.dates, y: data.awm_counts, mode: 'lines+markers', name: 'AWM', line: { color: isDarkMode ? '#ff7f0e' : '#ff7f0e' }, marker: { color: isDarkMode ? '#ff7f0e' : '#ff7f0e' }},
+                    { x: data.dates, y: data.awpm_counts, mode: 'lines+markers', name: 'AWP&M', line: { color: isDarkMode ? '#2ca02c' : '#2ca02c' }, marker: { color: isDarkMode ? '#2ca02c' : '#2ca02c' }}
+                ];
+                const layout = {
+                    title: { text: `Maintenance Status: ${data.part_name}`, font: { size: 14, color: isDarkMode ? '#e0e0e0' : '#212121'}},
+                    xaxis: { title: 'Date', tickangle: -30, automargin: true, tickfont: { size: 10, color: isDarkMode ? '#bbb' : '#555' }, titlefont: { size: 12, color: isDarkMode ? '#e0e0e0' : '#212121' } },
+                    yaxis: { title: 'Count', tickfont: { size: 10, color: isDarkMode ? '#bbb' : '#555' }, titlefont: { size: 12, color: isDarkMode ? '#e0e0e0' : '#212121' } },
+                    margin: { l: 40, r: 20, b: 60, t: 30 }, // Adjusted margins for smaller chart
+                    paper_bgcolor: isDarkMode ? 'rgba(44,44,44,0.9)' : 'rgba(240,240,240,0.9)',
+                    plot_bgcolor: isDarkMode ? 'rgba(44,44,44,0.9)' : 'rgba(240,240,240,0.9)',
+                    font: { color: isDarkMode ? '#e0e0e0' : '#212121', size: 10 },
+                    legend: { orientation: 'h', yanchor: 'bottom', y: 1.05, xanchor: 'right', x: 1, font: {size: 10, color: isDarkMode ? '#e0e0e0' : '#212121'} }
+                };
+                Plotly.newPlot(chartDiv, traces, layout, {responsive: true});
+            }
+        }
+
+        function ChatApp() {
+            const [messages, setMessages] = useState([]);
+            const [input, setInput] = useState('');
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState(null);
+            const [conversationId, setConversationId] = useState(null);
+            const messagesEndRef = useRef(null);
+            const [sunburstData, setSunburstData] = useState(null);
+            const [isDarkMode, setIsDarkMode] = useState(() => {
+                const savedTheme = localStorage.getItem('theme');
+                if (savedTheme) return savedTheme === 'dark';
+                return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            });
+            
+			const [mainPanelMaintenanceData, setMainPanelMaintenanceData] = useState(null);
+
+            const threeDViewerRef = useRef(null);
+            const [threeDLoadingText, setThreeDLoadingText] = useState("Initializing 3D Viewer...");
+            const [selectedPartDisplay, setSelectedPartDisplay] = useState("");
+
+            useEffect(() => {
+                if (isDarkMode) {
+                    document.body.classList.add('dark-mode');
+                    localStorage.setItem('theme', 'dark');
+                } else {
+                    document.body.classList.remove('dark-mode');
+                    localStorage.setItem('theme', 'light');
+                }
+            }, [isDarkMode]);
+
+            const toggleTheme = () => {
+                setIsDarkMode(prevMode => !prevMode);
+            };
+            
+            useEffect(() => {
+                const themeButton = document.getElementById('theme-toggle');
+                if (themeButton) {
+                    themeButton.addEventListener('click', toggleTheme);
+                }
+                return () => {
+                    if (themeButton) {
+                        themeButton.removeEventListener('click', toggleTheme);
+                    }
+                };
+            }, []); // Removed toggleTheme from dependencies as it's stable
+
+            const scrollToBottom = () => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            };
+
+            useEffect(() => { scrollToBottom(); }, [messages]);
+
+            useEffect(() => {
+                const fetchSunburstData = async () => {
+                    try {
+                        const response = await fetch(`${API_URL}/api/sunburst-data`);
+                        if (!response.ok) throw new Error(`Failed to fetch sunburst data: ${response.statusText}`);
+                        const data = await response.json();
+                        setSunburstData(data);
+                    } catch (err) {
+                        console.error("Error fetching sunburst data:", err);
+                        const chartDiv = document.getElementById('sunburst-chart-div');
+                        if(chartDiv) chartDiv.innerText = `Error loading chart: ${err.message}`;
+                    }
+                };
+                fetchSunburstData();
+            }, []);
+
+            useEffect(() => {
+                const chartDiv = document.getElementById('sunburst-chart-div');
+                if (window.Plotly && chartDiv && sunburstData) {
+                    chartDiv.innerHTML = ''; 
+                    if (sunburstData && sunburstData.ids && sunburstData.labels && sunburstData.parents && sunburstData.values) {
+                        const trace = {
+                            type: "sunburst", ids: sunburstData.ids, labels: sunburstData.labels, parents: sunburstData.parents, values:  sunburstData.values,
+                            outsidetextfont: {size: 20, color: isDarkMode ? "#ccc" : "#377eb8"}, leaf: {opacity: 0.7},
+                            marker: {line: {width: 1.5, color: isDarkMode ? '#444' : '#fff'}}, branchvalues: 'total', hoverinfo: 'label+percent entry+value'
+                        };
+                        const layout = {
+                            margin: {l: 10, r: 10, b: 10, t: 10}, paper_bgcolor: isDarkMode ? 'rgba(30,30,30,1)' : 'rgba(255,255,255,1)',
+                            plot_bgcolor: isDarkMode ? 'rgba(30,30,30,1)' : 'rgba(255,255,255,1)',
+                            sunburstcolorway: isDarkMode ? ["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b"] : ["#636EFA","#EF553B","#00CC96", "#AB63FA", "#FFA15A", "#19D3F3"],
+                            font: { color: isDarkMode ? '#e0e0e0' : '#212121' }
+                        };
+                        Plotly.newPlot(chartDiv, [trace], layout, {responsive: true});
+                    } else { chartDiv.innerText = 'Error: Sunburst data is invalid.'; }
+                } else if (chartDiv && !sunburstData) {
+                    chartDiv.innerText = 'Loading Sunburst Chart...';
+                }
+            }, [sunburstData, isDarkMode]);
+			
+            useEffect(() => {
+                const fetchMaintenanceData = async (partName = "DefaultPart-123") => {
+                    try {
+                        const response = await fetch(`${API_URL}/api/parts-awaiting-maintenance?part_name=${encodeURIComponent(partName)}`);
+                        if (!response.ok) {
+                            const errorData = await response.json();
+                            throw new Error(errorData.detail || `Failed to fetch maintenance data for ${partName}`);
+                        }
+                        const data = await response.json();
+                        setMainPanelMaintenanceData(data);
+                    } catch (err) {
+                        console.error("Error fetching main panel maintenance data:", err);
+                        const chartDiv = document.getElementById('maintenance-line-chart-div');
+                        if (chartDiv) chartDiv.innerText = `Error loading maintenance data: ${err.message}`;
+                    }
+                };
+                fetchMaintenanceData();
+            }, []);
+
+            useEffect(() => {
+                if (mainPanelMaintenanceData && window.Plotly) {
+                    const chartDiv = document.getElementById('maintenance-line-chart-div');
+                    if (!chartDiv) return;
+                    chartDiv.innerHTML = ''; 
+
+                    const traces = [
+                        { x: mainPanelMaintenanceData.dates, y: mainPanelMaintenanceData.awp_counts, mode: 'lines+markers', name: 'AWP', line: { color: isDarkMode ? '#1f77b4' : '#1f77b4' }, marker: { color: isDarkMode ? '#1f77b4' : '#1f77b4' } },
+                        { x: mainPanelMaintenanceData.dates, y: mainPanelMaintenanceData.awm_counts, mode: 'lines+markers', name: 'AWM', line: { color: isDarkMode ? '#ff7f0e' : '#ff7f0e' }, marker: { color: isDarkMode ? '#ff7f0e' : '#ff7f0e' } },
+                        { x: mainPanelMaintenanceData.dates, y: mainPanelMaintenanceData.awpm_counts, mode: 'lines+markers', name: 'AWP & M', line: { color: isDarkMode ? '#2ca02c' : '#2ca02c' }, marker: { color: isDarkMode ? '#2ca02c' : '#2ca02c' } }
+                    ];
+                    const layout = {
+                        title: {text: `Maintenance Overview: ${mainPanelMaintenanceData.part_name}`, font: {color: isDarkMode ? '#e0e0e0' : '#212121'}},
+                        xaxis: { title: 'Date', tickangle: -45, automargin: true, tickfont: { color: isDarkMode ? '#bbb' : '#555' }, titlefont: { color: isDarkMode ? '#e0e0e0' : '#212121' } },
+                        yaxis: { title: 'Count', tickfont: { color: isDarkMode ? '#bbb' : '#555' }, titlefont: { color: isDarkMode ? '#e0e0e0' : '#212121' } },
+                        margin: { l: 50, r: 20, b: 100, t: 50 }, paper_bgcolor: isDarkMode ? 'rgba(30,30,30,1)' : 'rgba(255,255,255,1)',
+                        plot_bgcolor: isDarkMode ? 'rgba(30,30,30,1)' : 'rgba(255,255,255,1)', font: { color: isDarkMode ? '#e0e0e0' : '#212121' },
+                        legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'right', x: 1 }
+                    };
+                    Plotly.newPlot(chartDiv, traces, layout, {responsive: true});
+                } else if (document.getElementById('maintenance-line-chart-div') && !mainPanelMaintenanceData) {
+                     document.getElementById('maintenance-line-chart-div').innerText = 'Loading overview maintenance data...';
+                }
+            }, [mainPanelMaintenanceData, isDarkMode]);
+
+
+            useEffect(() => {
+                if (typeof THREE === 'undefined' || typeof THREE.OrbitControls === 'undefined' || typeof THREE.GLTFLoader === 'undefined') {
+                    setThreeDLoadingText("Three.js libraries not fully loaded."); return;
+                }
+                if (!threeDViewerRef.current) {
+                    setThreeDLoadingText("3D viewer container missing in DOM."); return;
+                }
+
+                let scene, camera, renderer, controls, raycaster, mouse;
+                let animationFrameId;
+                const loadedModels = [];
+
+                const initThree = () => {
+                    setThreeDLoadingText("Loading 3D Model...");
+                    scene = new THREE.Scene();
+                    scene.background = new THREE.Color(getComputedStyle(document.body).getPropertyValue('--three-d-viewer-bg').trim() || (isDarkMode ? 0x2b2b2b : 0xf0f0f0));
+                    camera = new THREE.PerspectiveCamera(75, threeDViewerRef.current.clientWidth / threeDViewerRef.current.clientHeight, 0.1, 1000);
+                    camera.position.set(0, 1, 3);
+                    renderer = new THREE.WebGLRenderer({ antialias: true });
+                    renderer.setSize(threeDViewerRef.current.clientWidth, threeDViewerRef.current.clientHeight);
+                    renderer.setPixelRatio(window.devicePixelRatio);
+                    threeDViewerRef.current.innerHTML = '';
+                    threeDViewerRef.current.appendChild(renderer.domElement);
+                    controls = new THREE.OrbitControls(camera, renderer.domElement);
+                    controls.enableDamping = true; controls.dampingFactor = 0.05;
+                    const ambientLight = new THREE.AmbientLight(0xffffff, isDarkMode ? 0.5 : 0.7); scene.add(ambientLight);
+                    const directionalLight = new THREE.DirectionalLight(0xffffff, isDarkMode ? 0.8 : 1.0); directionalLight.position.set(5, 10, 7.5); scene.add(directionalLight);
+                    raycaster = new THREE.Raycaster(); mouse = new THREE.Vector2();
+                    const modelInfo = { url: "./models/rogue_one_tie_fighter.glb", name: "TIE Fighter", position: { x: 0, y: 0, z: 0 } };
+                    const loader = new THREE.GLTFLoader();
+                    loader.load( modelInfo.url, (gltf) => {
+                            const modelScene = gltf.scene; modelScene.userData.partName = modelInfo.name;
+                            modelScene.position.set(modelInfo.position.x, modelInfo.position.y, modelInfo.position.z);
+                            modelScene.traverse(child => { if (child.isMesh) { child.userData.partName = modelInfo.name; } });
+                            scene.add(modelScene); loadedModels.push(modelScene); setThreeDLoadingText("");
+                        },
+                        (xhr) => { setThreeDLoadingText(`Loading ${modelInfo.name}: ${(xhr.loaded / xhr.total * 100).toFixed(0)}%`); },
+                        (error) => { console.error(`Error loading model ${modelInfo.name}:`, error); setThreeDLoadingText(`Failed to load ${modelInfo.name}.`); }
+                    );
+                    renderer.domElement.addEventListener('click', onModelClick);
+                    window.addEventListener('resize', onWindowResize);
+                    animate();
+                };
+
+                const onWindowResize = () => {
+                    if (!threeDViewerRef.current || !renderer || !camera) return;
+                    camera.aspect = threeDViewerRef.current.clientWidth / threeDViewerRef.current.clientHeight;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(threeDViewerRef.current.clientWidth, threeDViewerRef.current.clientHeight);
+                };
+
+                const onModelClick = (event) => {
+                    if (!threeDViewerRef.current || loadedModels.length === 0 || !raycaster || !mouse || !camera || !renderer) return;
+                    const rect = renderer.domElement.getBoundingClientRect();
+                    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                    raycaster.setFromCamera(mouse, camera);
+                    const intersects = raycaster.intersectObjects(loadedModels, true);
+                    if (intersects.length > 0) {
+                        let clickedObject = intersects[0].object; let partName = null;
+                        while(clickedObject) { if (clickedObject.userData && clickedObject.userData.partName) { partName = clickedObject.userData.partName; break; } clickedObject = clickedObject.parent; }
+                        if (partName) { setSelectedPartDisplay(`Selected Part: ${partName}`); }
+                    }
+                };
+
+                const animate = () => {
+                    if (!renderer) return; animationFrameId = requestAnimationFrame(animate);
+                    if (controls) controls.update(); renderer.render(scene, camera);
+                };
+
+                initThree();
+                if (scene) { scene.background = new THREE.Color(getComputedStyle(document.body).getPropertyValue('--three-d-viewer-bg').trim() || (isDarkMode ? 0x2b2b2b : 0xf0f0f0)); }
+
+                return () => {
+                    cancelAnimationFrame(animationFrameId); window.removeEventListener('resize', onWindowResize);
+                    if (renderer && renderer.domElement) { renderer.domElement.removeEventListener('click', onModelClick); }
+                    if(controls) controls.dispose();
+                    loadedModels.forEach(model => {
+                        model.traverse(child => {
+                            if (child.isMesh) {
+                                if (child.geometry) child.geometry.dispose();
+                                if (child.material) { if (Array.isArray(child.material)) { child.material.forEach(material => material.dispose()); } else { child.material.dispose(); } }
+                            }
+                        });
+                        if (scene) scene.remove(model);
+                    });
+                    loadedModels.length = 0; if (renderer) renderer.dispose(); renderer = null; scene = null; camera = null; controls = null; raycaster = null; mouse = null;
+                    if (threeDViewerRef.current) { threeDViewerRef.current.innerHTML = ''; }
+                };
+            }, [isDarkMode]);
+
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!input.trim() || loading) return;
+                const userMessage = { role: 'user', content: input, timestamp: new Date().toISOString(), id: `msg-user-${new Date().getTime()}` };
+                setMessages(prev => [...prev, userMessage]);
+                const currentInput = input;
+                setInput(''); 
+                setLoading(true); setError(null);
+                try {
+                    const response = await fetch(`${API_URL}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json', }, body: JSON.stringify({ message: currentInput, conversation_id: conversationId, }) });
+                    if (!response.ok) { let errorData; try { errorData = await response.json(); } catch (parseError) { throw new Error(response.statusText || 'Failed to send message'); } throw new Error(errorData.detail || 'Failed to send message'); }
+                    const data = await response.json();
+                    if (!conversationId) { setConversationId(data.conversation_id); }
+                    const assistantMessage = { 
+                        ...data.message, 
+                        id: `msg-assist-${new Date().getTime()}-${Math.random().toString(16).slice(2)}`,
+                        citations: data.citations, part_info: data.part_info, query_classification: data.query_classification, 
+                        timestamp: data.message.timestamp || new Date().toISOString(),
+                        maintenance_data: data.maintenance_data
+                    };
+                    setMessages(prev => [...prev, assistantMessage]);
+                } catch (err) { console.error('Chat Error:', err); setError(err.message || 'Failed to connect to the server.');
+                } finally { setLoading(false); }
+            };
+
+            return (
+                <div className="main-container">
+                    <div className="chat-column">
+                        <div className="header"><h1>LANCE</h1><p>LLM Agent for Navigating Complex Engineering</p></div>
+                        <div className="messages-container">
+                            {error && <div className="error-message">{error}</div>}
+                            {messages.map((message) => ( // Removed index from map key
+                                <Message 
+                                    key={message.id} // Use the unique ID as key
+                                    message={message} 
+                                    isDarkMode={isDarkMode}
+                                />
+                            ))}
+                            {loading && <div className="loading">Assistant is thinking...</div>}
+                            <div ref={messagesEndRef} />
+                        </div>
+                        <form onSubmit={handleSubmit} className="input-form">
+                            <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask LANCE or click 3D model..." disabled={loading} />
+                            <button type="submit" disabled={loading || !input.trim()}>Send</button>
+                        </form>
+                    </div>
+                    <div className="visualization-column">
+                        <div className="viz-section">
+                            <h2>Hierarchy Explorer</h2>
+                            <div id="sunburst-chart-div" style={{width: '100%', height: '300px'}}></div>
+                        </div>
+						<div className="viz-section">
+                            <h2>Parts Awaiting Maintenance (Overview)</h2>
+                            <div id="maintenance-line-chart-div" style={{width: '100%', height: '300px'}}></div>
+                        </div>
+                        <div className="viz-section">
+                            <h2>3D Model Viewer</h2>
+                            <div id="three-d-viewer-container" ref={threeDViewerRef}>
+                                <div className="loading-text">{threeDLoadingText}</div>
+                            </div>
+                            <div id="part-info-display-container">
+                                <h2>Selected Part Information</h2>
+                                <p>{selectedPartDisplay ? <strong>{selectedPartDisplay}</strong> : "Click on a 3D model part to see its name."}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function Message({ message, isDarkMode }) {
+            const [showCitations, setShowCitations] = useState(false); 
+            const content = message.content || "Assistant is preparing content...";
+            const chartContainerId = message.maintenance_data ? `chart-${message.id}` : null; // Use message.id for chart
+
+            useEffect(() => {
+                if (message.maintenance_data && chartContainerId) {
+                    const timer = setTimeout(() => { // Ensure DOM element is available
+                        plotMaintenanceChartInMessage(chartContainerId, message.maintenance_data, isDarkMode);
+                    }, 50);
+                    return () => clearTimeout(timer);
+                }
+            }, [message.maintenance_data, chartContainerId, isDarkMode, message.id]); // Add message.id
+
+            return (
+                <div className={`message ${message.role}`}>
+                    <div className="message-content">
+                        {content}
+                        {message.maintenance_data && (
+                            <div 
+                                id={chartContainerId} 
+                                className="in-message-chart-container"
+                                // Style is now in CSS, but can keep specific overrides here if needed
+                            >
+                                {/* Plotly will render here */}
+                            </div>
+                        )}
+                    </div>
+                    {message.part_info && (
+                        <div className="part-info"><h4>Part Information</h4><div>Part Number: <strong>{message.part_info.part_number}</strong></div>{message.part_info.status && <div>Status: <strong>{message.part_info.status}</strong></div>}{message.part_info.hierarchy && message.part_info.hierarchy.length > 0 && (<div className="hierarchy">Hierarchy: {message.part_info.hierarchy.map((level, idx) => (<React.Fragment key={idx}><span>{level}</span>{idx < message.part_info.hierarchy.length - 1 && '→'}</React.Fragment>))}</div>)}</div>
+                    )}
+                    {message.citations && message.citations.length > 0 && (
+                        <div className="citations-section">
+                            <button className="citations-toggle" onClick={() => setShowCitations(!showCitations)}>{showCitations ? '▼' : '▶'} Sources ({message.citations.length})</button>
+                            {showCitations && (<div className="citations-list">{message.citations.map((citation, idx) => (<Citation key={idx} citation={citation} index={idx + 1} />))}</div>)}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        function Citation({ citation, index }) {
+            const getFileIcon = (source) => { if (!source || typeof source !== 'string') return '📋'; const ext = source.split('.').pop()?.toLowerCase(); switch (ext) { case 'pdf': return '📄'; case 'csv': return '📊'; case 'pptx': case 'ppt': return '📽️'; case 'xlsx': case 'xls': return '📈'; default: return '📋'; } }; 
+            const excerptText = citation.excerpt || "No excerpt available."; 
+            const scoreValue = typeof citation.score === 'number' ? (citation.score * 100).toFixed(0) : "N/A";
+            return (
+                <div className="citation-card">
+                    <div className="citation-header">
+                        <span className="citation-number">[{index}]</span>
+                        <span>{getFileIcon(citation.source)} {citation.source || "Unknown Source"}</span>
+                        {citation.page && <span>(Page {citation.page})</span>}
+                        {citation.row && <span>(Row {citation.row})</span>}
+                    </div>
+                    <div className="citation-excerpt">{excerptText}</div>
+                    <div className="citation-score">Relevance: {scoreValue}%</div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<ChatApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
