@@ -6,7 +6,7 @@ REM Set the path to your repository (where this script is located)
 SET "REPO_PATH=%~dp0"
 
 REM Set the name of your virtual environment folder
-SET "VENV_FOLDER=.venv"  REM Common names: .venv, venv, myenv, etc.
+SET "VENV_FOLDER=venv"  REM Common names: .venv, venv, myenv, etc.
 
 REM --- End Configuration ---
 

@@ -95,10 +95,6 @@ class HierarchyResponse(BaseModel):
 agent: Optional[OllamaEnhancedRAGAgent] = None
 conversations: Dict[str, List[Dict[str, Any]]] = {}
 
-OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL_NAME = "gemma3:4b"
-OLLAMA_EMBED_MODEL_NAME = "nomic-embed-text"
-
 
 def build_hierarchy_tree(parts_data: List[Dict[str, Any]]) -> HierarchyNode:
     """Build a complete hierarchy tree from multiple part data."""

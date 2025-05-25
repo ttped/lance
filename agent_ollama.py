@@ -172,7 +172,7 @@ class EnhancedEngineeringAgent:
 You are an expert query classifier for an engineering knowledge system. Your task is to analyze the user's query
 and respond *only* with a valid JSON object that strictly adheres to the following structure:
 {{
-  "query_type": "string (must be one of: 'part_query', 'document_search', 'general_question', 'hybrid_query')",
+  "query_type": "string (must be one of: 'part_query', 'document_search', 'general_question', 'hybrid_query', 'get_parts_awaiting_maintenance')",
   "part_identifiers": ["list of strings (extracted part numbers or names, e.g., '123', 'XYZ-001', '1.1.2.3')"],
   "requires_rag": "boolean (true if document search is needed for an engineering context, false otherwise for general/philosophical questions or if the question can be answered from common knowledge)",
   "search_keywords": ["list of strings (key terms for document retrieval if requires_rag is true, or general keywords from the query if false)"],
