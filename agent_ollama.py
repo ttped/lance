@@ -5,7 +5,8 @@ from langchain.agents import AgentExecutor, AgentOutputParser
 from langchain.tools import Tool
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.messages import HumanMessage
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+from langchain_core.prompt_values import ChatPromptValue
 from langchain_core.agents import AgentAction, AgentFinish
 from pydantic import BaseModel, Field
 from enum import Enum
@@ -390,11 +391,11 @@ You have access to the following tools:
     respond ONLY with a single valid JSON object with a single key "answer":
     ```json
     {{
-      "answer": "Your comprehensive, plain text answer here, synthesizing all relevant information. 
-                 If your answer uses information retrieved from tools (details of which would be in an 'Observation:'), you MUST explicitly state the source or nature of the retrieved data in parentheses. 
-                 For example: 'The device operates at 50Hz (Source: device_manual.pdf).' or 'Key safety measures include X, Y, and Z (Source: safety_guide.txt).'
-                 If a tool returned structured data (e.g., for charts, tables), your answer should acknowledge this by summarizing what was retrieved. For example: 'I have retrieved the maintenance data for [Part Name]. It includes dates, AWP counts, AWM counts, and AWPM counts.' or 'Part hierarchy information for [Part Number] is now available, showing its parent and child components.'
-                 The actual data will be handled by the system, but your textual answer should confirm its retrieval and briefly describe what was found based on the Observation.
+      "answer": "Your comprehensive, plain text answer here, synthesizing all relevant information.
+                 If your answer uses information retrieved from tools (details of which would be in an 'Observation:'):
+                   - If the Observation is from the 'search_documents' tool and contains document excerpts, your answer should primarily be a summary or synthesis of these excerpts relevant to the User's Query. You MUST state the source (e.g., document name or ID if available) for the information. For example: 'According to tie_fighter.txt, the TIE fighter is manufactured by Sienar Fleet Systems. It also mentions...' or 'The search results for "TIE fighter" indicate that it is a single-pilot starfighter (Source: T981-TF02_manual.pdf).'
+                   - If the Observation is from other tools (like 'get_part_hierarchy' or 'get_maintenance_data') and contains structured data, your answer should acknowledge this by summarizing what was retrieved (e.g., 'I have retrieved the maintenance data for [Part Name]. It includes dates, AWP counts...').
+                 The actual data (like full document content or raw structured data) will be handled by the system, but your textual answer should confirm its retrieval and provide the requested summary or description based on the Observation.
                  IMPORTANT: If a tool was used but its output (Observation) is clearly irrelevant to the original User's Query, prioritize answering the User's Query using your general knowledge. In such cases, you should OMIT the irrelevant tool findings from your answer or, at most, very briefly state that a search/tool did not yield relevant information, then proceed with the general knowledge answer."
     }}
     ```
@@ -413,15 +414,19 @@ You have access to the following tools:
 1.  Examine the User's Query: "{input}" and the Scratchpad: "{agent_scratchpad}".
 2.  Does the Scratchpad contain an "Observation:" with information from a recent tool call?
     * If YES:
-        a.  Critically evaluate if the Observation's content is relevant and helpful for answering the original User's Query. Consult the tool's description (from {tools_string}) to understand the expected nature of this Observation.
-        b.  If the Observation provides the specific information the user asked for (e.g., hierarchy details, maintenance data, document excerpts that answer the query): This information IS considered sufficient. You MUST formulate your comprehensive answer using these details and provide it in the FINAL ANSWER JSON format. DO NOT call the same tool again for the same input in this turn.
+        a. Critically evaluate if the Observation's content is relevant and helpful for answering the original User's Query. Consult the tool descriptions provided at the beginning of this prompt to understand the expected nature of this Observation.
+		b.  If the Observation provides the specific information the user asked for (e.g., hierarchy details, maintenance data, or document excerpts from 'search_documents' that address the query): This information IS considered sufficient. You MUST formulate your comprehensive answer using these details (summarizing document excerpts if they came from 'search_documents', or describing retrieved data for other tools) and provide it in the FINAL ANSWER JSON format as described in Instruction 4. DO NOT call the same tool again for the same input in this turn.
         c.  If the Observation is relevant but NOT sufficient, or if it's an error message from the tool: Re-evaluate the User's Query. Is another tool call (with a different tool or different input) necessary and justified by a tool's description? Or can you now answer with the partial information or general knowledge?
         d.  If the Observation is clearly irrelevant (e.g., tool called inappropriately, a search tool returned no relevant results for the specific query, or a data-retrieval tool failed to return the expected data structure): Disregard the irrelevant tool output. Formulate your answer to the User's Query using your general knowledge (if appropriate for the query type) or state that the information could not be found or the tool did not provide the necessary data. Provide this answer in the FINAL ANSWER JSON format. 
 
-3.  If NO relevant Observation exists, or if more information is still needed after evaluating an Observation:
-    a.  Re-evaluate the User's Query based on Instruction 1 (TOOL USAGE - GENERAL PRINCIPLES). Is it an engineering query potentially solvable by one of the tools described in {tools_string}, or a general/philosophical one best answered from general knowledge?
-    b.  If a tool is deemed appropriate and necessary according to its description: Respond with the TOOL CALL JSON. Ensure the `tool_input` is directly derived from the User's Query and strictly follows the input format specified in the tool's description.
-    c.  If no tool is needed or appropriate (especially for non-engineering queries or if no tool description matches the need): Formulate your answer using general knowledge. Provide this answer in the FINAL ANSWER JSON format.
+3.  If NO relevant Observation exists:
+    a. Re-evaluate the User's Query based on Instruction 1 (TOOL USAGE - GENERAL PRINCIPLES). Is it an engineering query potentially solvable by one of the tools described at the beginning of this prompt, or a general/philosophical one best answered from general knowledge?
+    b.  If a tool is deemed appropriate and necessary according to its description: Respond with the TOOL CALL JSON. 
+		Ensure the `tool_input` is directly derived from the User's Query and strictly follows the input format specified in the tool's description.
+    c.  If no tool is needed or appropriate (especially for non-engineering queries or if no tool description matches the need): 
+		Formulate your answer using general knowledge. Provide this answer in the FINAL ANSWER JSON format.
+
+4. If an Observation exists then attempt to answer the question.
 
 User's Query: {input}
 Scratchpad:
@@ -430,6 +435,20 @@ Scratchpad:
 Your response (ensure it's one of the valid JSON formats described above):"""
         
         prompt = ChatPromptTemplate.from_template(agent_prompt_template)
+		
+		# Define a small function to print the LLM's input
+        def print_llm_input_passthrough(prompt_value: ChatPromptValue):
+            # The 'prompt_value' is what the 'prompt' object above produces
+            # and what will be sent to 'self.tool_llm'
+            print("\n================ LLM Input (Full Prompt) ================")
+            # .to_string() is usually a good way to see the text as the LLM would
+            print(prompt_value.to_string())
+            # If you want to see the structured messages (e.g., HumanMessage, SystemMessage)
+            # you can iterate through prompt_value.to_messages()
+            # for message in prompt_value.to_messages():
+            # print(f"Type: {type(message)}, Content Preview: {str(message.content)[:200]}...")
+            print("================ End LLM Input ================\n")
+            return prompt_value # Important: return it unchanged to pass to the next step
         
         # We will not use bind_tools() if gemma3:4b doesn't support the 'tools' API parameter.
         # self.tool_llm is already ChatOllama(..., format="json", ...), which is suitable
@@ -444,6 +463,7 @@ Your response (ensure it's one of the valid JSON formats described above):"""
                 tool_history=lambda x: self._format_tool_history(x.get("intermediate_steps", []))
             )
             | prompt
+			| RunnableLambda(print_llm_input_passthrough)
             | self.tool_llm
             | CustomOllamaFunctionsOutputParser() 
         )
@@ -474,11 +494,30 @@ Your response (ensure it's one of the valid JSON formats described above):"""
         return history_str
 
     def _format_agent_scratchpad(self, intermediate_steps: List[Tuple[AgentAction, str]]) -> str:
-        """Formats the agent's scratchpad (intermediate steps) for the Ollama prompt."""
+        """Formats the agent's scratchpad. (Using the last suggested version with summarization)"""
         log = ""
-        for action, observation in intermediate_steps:
-            log += action.log
-            log += f"\nObservation: {observation}\n"
+        if not intermediate_steps: return log
+
+        for i, (action, observation) in enumerate(intermediate_steps):
+            log += f"Previous Action Log (Iteration {i+1}): {action.log}\n"
+            obs_summary, max_obs_length = "", 300
+            if isinstance(observation, str):
+                obs_summary = (observation[:max_obs_length - 3] + "...") if len(observation) > max_obs_length else observation
+            elif isinstance(observation, (list, dict)):
+                try: obs_str = json.dumps(observation)
+                except TypeError: obs_str = str(observation)
+                obs_summary = (obs_str[:max_obs_length - 3] + "...") if len(obs_str) > max_obs_length else obs_str
+            elif observation is None: obs_summary = "No observation was returned from the tool."
+            else:
+                obs_summary = f"Observation received (type: {type(observation).__name__}, summary might be limited)."
+                try:
+                    str_repr = str(observation)
+                    obs_summary = (str_repr[:max_obs_length - 3] + "...") if len(str_repr) > max_obs_length else str_repr
+                except Exception: pass
+            log += f"Observation (Iteration {i+1}): {obs_summary}\n\n"
+        
+        if log:
+            log += "Based on the User's Query and the history above (including your previous actions and their observations), decide your next step. If you have sufficient information from an observation to answer the query, provide the FINAL ANSWER JSON. Otherwise, if a tool is necessary, provide the TOOL CALL JSON."
         return log
 
     async def _handle_direct_general_question(self, query: str, response_payload: Dict[str, Any]) -> bool:
@@ -649,7 +688,11 @@ Your JSON Response:"""
 
 
     async def process_query(self, query: str) -> Dict[str, Any]:
-        """Process a query using classification and the Ollama agent executor."""
+        """
+		Process a query using classification and the Ollama agent executor.
+		
+		First classifies the correct tool to use then routes it to that tool.
+		"""
         print(f"\n [process_query] Received query: {query}")
         classification = self.classify_query(query)
         print(f"[process_query] Classification result: {classification.model_dump()}")
