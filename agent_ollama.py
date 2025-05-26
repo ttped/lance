@@ -75,6 +75,7 @@ class QueryType(Enum):
     DOCUMENT_SEARCH = "document_search"
     GENERAL_QUESTION = "general_question"
     HYBRID_QUERY = "hybrid_query"
+    GET_MAINTENANCE_DATA = "get_maintenance_data"
 
 class QueryClassification(BaseModel):
     query_type: QueryType
@@ -120,10 +121,10 @@ class EnhancedEngineeringAgent:
             #method="json_mode" # causes a error
         )
 
-    def get_parts_awaiting_maintenance_data(self, part_name: str) -> Dict[str, Any]:
+    def get_maintenance_data(self, part_name: str) -> Dict[str, Any]:
         """
         Generates dummy data for parts awaiting maintenance for a given part name.
-        This function is called by the 'get_parts_awaiting_maintenance' tool.
+        This function is called by the 'get_maintenance_data' tool.
         Input can be a string (part_name) or a dict {'part_name': 'XYZ'}.
         """
         actual_part_name = part_name
@@ -131,10 +132,10 @@ class EnhancedEngineeringAgent:
             actual_part_name = part_name["part_name"]
         elif not isinstance(part_name, str):
             # Fallback if input is not as expected
-            print(f"Warning: Unexpected input type for part_name in get_parts_awaiting_maintenance_data: {type(part_name)}. Using 'UnknownPart'.")
+            print(f"Warning: Unexpected input type for part_name in get_maintenance_data: {type(part_name)}. Using 'UnknownPart'.")
             actual_part_name = "UnknownPart"
 
-        print(f"Tool 'get_parts_awaiting_maintenance_data' called for part: {actual_part_name}")
+        print(f"Tool 'get_maintenance_data' called for part: {actual_part_name}")
         
         dates = []
         awp_counts = []
@@ -172,7 +173,7 @@ class EnhancedEngineeringAgent:
 You are an expert query classifier for an engineering knowledge system. Your task is to analyze the user's query
 and respond *only* with a valid JSON object that strictly adheres to the following structure:
 {{
-  "query_type": "string (must be one of: 'part_query', 'document_search', 'general_question', 'hybrid_query', 'get_parts_awaiting_maintenance')",
+  "query_type": "string (must be one of: 'part_query', 'document_search', 'general_question', 'hybrid_query', 'get_maintenance_data')",
   "part_identifiers": ["list of strings (extracted part numbers or names, e.g., '123', 'XYZ-001', '1.1.2.3')"],
   "requires_rag": "boolean (true if document search is needed for an engineering context, false otherwise for general/philosophical questions or if the question can be answered from common knowledge)",
   "search_keywords": ["list of strings (key terms for document retrieval if requires_rag is true, or general keywords from the query if false)"],
@@ -196,9 +197,13 @@ Examples of mapping queries to JSON:
    JSON: {{"query_type": "general_question", "part_identifiers": [], "requires_rag": false, "search_keywords": ["steel", "aluminum", "difference"], "confidence": 0.85}}
 5. Query: "What is love?"
    JSON: {{"query_type": "general_question", "part_identifiers": [], "requires_rag": false, "search_keywords": ["love"], "confidence": 0.98}}
-6. Query: "Tell me about the reliability of the X12 pump and search for maintenance guides."
-   JSON: {{"query_type": "hybrid_query", "part_identifiers": ["X12 pump"], "requires_rag": true, "search_keywords": ["reliability", "X12 pump", "maintenance guides"], "confidence": 0.92}}
-
+6. Query: "Tell me about the reliability of the X12 pump and search for maintenance guides/data."
+   JSON: {{"query_type": "get_maintenance_data", "part_identifiers": ["X12 pump"], "requires_rag": true, "search_keywords": ["reliability", "X12 pump", "maintenance guides"], "confidence": 0.92}}
+7. Query: "Get maintenance data for Compressor-123."
+   JSON: {{"query_type": "get_maintenance_data", "part_identifiers": ["Compressor-123"], "requires_rag": false, "search_keywords": ["maintenance data", "Compressor-123"], "confidence": 0.98}}
+8. Query: "Show me the AWM numbers for Sensor-A."
+   JSON: {{"query_type": "get_maintenance_data", "part_identifiers": ["Sensor-A"], "requires_rag": false, "search_keywords": ["AWM numbers", "Sensor-A", "maintenance"], "confidence": 0.95}}
+   
 Your JSON Response (ONLY the JSON object):"""
         
         prompt = PromptTemplate.from_template(classification_prompt_template)
@@ -301,7 +306,9 @@ Your JSON Response (ONLY the JSON object):"""
 
 
     def create_tools(self) -> List[Tool]:
-        """Create tools for the agent."""
+        """Create tools for the agent. Descriptions should be extremely clear and self-contained.
+		Should describe when to use the tool, input expectations, and output nature.
+		"""
         return [
             Tool(
                 name="get_part_hierarchy",
@@ -314,8 +321,8 @@ Your JSON Response (ONLY the JSON object):"""
                 description="Use this tool to search engineering documents using a natural language query. The input should be the search query string. You can include part numbers or concepts in your query."
             ),
             Tool(
-                name="get_parts_awaiting_maintenance",
-                func=self.get_parts_awaiting_maintenance_data,
+                name="get_maintenance_data",
+                func=self.get_maintenance_data,
                 description="Use this tool to get data on parts awaiting maintenance for a specific part name. The input should be the part name as a string, for example 'Pump-X12' or 'Sensor-Unit-A'. This tool returns data suitable for plotting a time-series chart.",
                 # args_schema=PartMaintenanceInput # Optional: if you want Pydantic validation for tool input
             ),
@@ -352,13 +359,13 @@ You have access to the following tools:
 1.  **TOOL USAGE SCOPE**:
     * If the User's Query clearly pertains to specific engineering topics (like components, materials, part numbers, technical processes, specifications) AND the query classification suggests a document search is appropriate, STRONGLY prefer using the `search_documents` tool.
     * Use `get_part_hierarchy` for specific part number inquiries.
-    * If the query is about maintenance status, "parts awaiting maintenance", "maintenance backlog", or similar for a specific part, use `get_parts_awaiting_maintenance`. The tool input for `get_parts_awaiting_maintenance` should be the part name (e.g., "PartX" or "Compressor-123").
+    * If the query is about maintenance status, "parts awaiting maintenance", "maintenance backlog", or similar for a specific part, use `get_maintenance_data`. The tool input for `get_maintenance_data` should be the part name (e.g., "PartX" or "Compressor-123").
     * For clearly non-engineering, philosophical, or common knowledge questions (e.g., "what is love?", "what's the weather like?"), AVOID using engineering-specific tools like `search_documents` or `get_part_hierarchy`. Answer these from general knowledge unless the query explicitly asks for an engineering perspective on that topic.
 
 2.  **AVOID TOOL LOOPS**: 
     * If you've already called a tool with the *exact same input* for the current query, DO NOT call it again unless the previous attempt failed or provided no information.
     * If a tool has provided relevant information, use that information to answer the user.
-    * Maximum of 1 call to `get_parts_awaiting_maintenance` per specific part name in a single user query.
+    * Maximum of 1 call to `get_maintenance_data` per specific part name in a single user query.
     * Maximum of 2 calls total for other unique tools for the current query if absolutely necessary.
 
 3.  **WHEN TO USE A TOOL (TOOL CALL JSON)**: 
@@ -375,7 +382,7 @@ You have access to the following tools:
     respond ONLY with a single valid JSON object with a single key "answer":
     ```json
     {{
-      "answer": "Your comprehensive, plain text answer here, synthesizing all relevant information. If your answer uses information retrieved from documents (details of which would be in an 'Observation:' from a 'search_documents' tool call), you MUST explicitly state the source document names in parentheses after the relevant piece of information, e.g., 'The device operates at 50Hz (Source: device_manual.pdf).' or 'Key safety measures include X, Y, and Z (Source: safety_guide.txt).' If multiple documents support a statement, you can list them, e.g., (Source: report_A.docx, data_sheet.csv). IMPORTANT: If a tool was used but its output (Observation) is clearly irrelevant to the original User's Query, prioritize answering the User's Query using your general knowledge. In such cases, you should OMIT the irrelevant tool findings from your answer or, at most, very briefly state that a document search did not yield relevant information to the specific query, then proceed with the general knowledge answer."
+      "answer": "Your comprehensive, plain text answer here, synthesizing all relevant information. If your answer uses information retrieved from documents (details of which would be in an 'Observation:' from a 'search_documents' tool call), you MUST explicitly state the source document names in parentheses after the relevant piece of information, e.g., 'The device operates at 50Hz (Source: device_manual.pdf).' or 'Key safety measures include X, Y, and Z (Source: safety_guide.txt).' If multiple documents support a statement, you can list them, e.g., (Source: report_A.docx, data_sheet.csv). If a tool like `get_maintenance_data` was used and returned structured data, your answer should acknowledge this, e.g., 'I have retrieved the maintenance data for [Part Name]. The data includes dates, AWP counts, AWM counts, and AWPM counts.' or 'Maintenance data for [Part Name] is now available.' The actual data will be handled by the system, but your textual answer should confirm its retrieval. IMPORTANT: If a tool was used but its output (Observation) is clearly irrelevant to the original User's Query, prioritize answering the User's Query using your general knowledge. In such cases, you should OMIT the irrelevant tool findings from your answer or, at most, very briefly state that a document search did not yield relevant information to the specific query, then proceed with the general knowledge answer."
     }}
     ```
 
@@ -397,8 +404,10 @@ You have access to the following tools:
     * If YES:
         a.  Critically evaluate if the Observation's content is relevant and helpful for answering the original User's Query.
         b.  If the Observation is from `get_part_hierarchy` and contains part details: This information IS considered sufficient for answering a query about that part's hierarchy. You MUST formulate your comprehensive answer using these details and provide it in the FINAL ANSWER JSON format. DO NOT call `get_part_hierarchy` again for the same part in this turn.
-        c.  For other tools, or if `get_part_hierarchy` returned an error/no specific info: If the Observation is relevant and sufficient: Formulate your comprehensive answer based on the User's Query and the relevant parts of the Observation. Provide this answer in the FINAL ANSWER JSON format.
-        d.  If the Observation is clearly irrelevant (e.g., tool called inappropriately, or a search tool returned no relevant results for the specific query): Disregard the irrelevant tool output. Formulate your answer to the User's Query using your general knowledge (if appropriate for the query type) or state that the information could not be found. Provide this answer in the FINAL ANSWER JSON format. You might state something like, "I searched for documents but did not find specific information relevant to [original query topic]. However, generally speaking, [answer to original query]..." or simply provide the general answer directly if no tool was meant to be used.
+        c.  If the Observation is from `get_maintenance_data` and contains maintenance data (like dates, awp_counts, etc.): This data IS the answer. You MUST acknowledge receipt of this data and state that it has been retrieved (e.g., "Maintenance data for [part_name] has been retrieved and is available."). Provide this acknowledgement in the FINAL ANSWER JSON format. DO NOT call `get_maintenance_data` again for the same part in this turn.
+        d.  For other tools (like `search_documents`), or if a tool like `get_part_hierarchy` or `get_maintenance_data` returned an error or clearly insufficient/irrelevant information: If the Observation is relevant and sufficient to answer the query based on the retrieved content: Formulate your comprehensive answer based on the User's Query and the relevant parts of the Observation. Provide this answer in the FINAL ANSWER JSON format.
+        e.  If the Observation is clearly irrelevant (e.g., tool called inappropriately, a search tool returned no relevant results for the specific query, or a data-retrieval tool like `get_maintenance_data` failed to return the expected data structure): Disregard the irrelevant tool output. Formulate your answer to the User's Query using your general knowledge (if appropriate for the query type) or state that the information could not be found or the tool did not provide the necessary data. Provide this answer in the FINAL ANSWER JSON format. You might state something like, "I attempted to retrieve maintenance data but did not find specific information. However, generally speaking, [answer to original query if applicable]..." or simply provide the general answer directly if no tool was meant to be used.
+
 3.  If NO relevant Observation exists, or if more information is still needed:
     a.  Re-evaluate the User's Query based on Instruction 1 (TOOL USAGE SCOPE). Is it an engineering query needing tools, or a general/philosophical one best answered from general knowledge?
     b.  If a tool is deemed appropriate and necessary for an engineering query: Respond with the TOOL CALL JSON. Ensure the `tool_input` is directly derived from the User's Query and targeted.
@@ -436,7 +445,7 @@ Your response (ensure it's one of the valid JSON formats described above):"""
             return_intermediate_steps=True,
             handle_parsing_errors="An error occurred. Please try rephrasing your request.",
             max_iterations=3,
-            early_stopping_method="generate"  # force / generate
+            early_stopping_method="force"  # force / generate
         )
 
     def _format_tool_history(self, intermediate_steps: List[Tuple[AgentAction, str]]) -> str:
@@ -606,8 +615,8 @@ Your JSON Response:"""
                     print(f"[_process_agent_output] Processing 'get_part_hierarchy' observation from step {step_idx}.")
                     if isinstance(observation, dict): 
                         response_payload["part_info"] = observation # Assuming only one part_info needed
-                elif tool_called == "get_parts_awaiting_maintenance":
-                    print(f"[_process_agent_output] Processing 'get_parts_awaiting_maintenance' observation from step {step_idx}.")
+                elif tool_called == "get_maintenance_data":
+                    print(f"[_process_agent_output] Processing 'get_maintenance_data' observation from step {step_idx}.")
                     if isinstance(observation, dict) and "part_name" in observation and "dates" in observation:
                         response_payload["maintenance_data"] = observation
 
@@ -631,7 +640,7 @@ Your JSON Response:"""
 
     async def process_query(self, query: str) -> Dict[str, Any]:
         """Process a query using classification and the Ollama agent executor."""
-        print(f"\n🚀 [process_query] Received query: {query}")
+        print(f"\n [process_query] Received query: {query}")
         classification = self.classify_query(query)
         print(f"[process_query] Classification result: {classification.model_dump()}")
         
@@ -648,7 +657,7 @@ Your JSON Response:"""
         proceed_to_agent_executor = True 
 
         if classification.query_type == QueryType.GENERAL_QUESTION:
-            if not classification.requires_rag and classification.confidence >= 0.85: # Tuned confidence
+            if not classification.requires_rag: # Tuned confidence
                 print("[process_query] Attempting direct handling for GENERAL_QUESTION.")
                 if await self._handle_direct_general_question(query, response_payload):
                     proceed_to_agent_executor = False 

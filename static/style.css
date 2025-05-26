@@ -225,7 +225,7 @@ body {
     background-color: var(--container-bg) !important;
 }
 .g-sunburst path {
-    /* stroke: var(--border-color); /* If you want to theme path borders */
+    stroke: var(--border-color); /* If you want to theme path borders */
 }
 .g-sunburst text {
     fill: var(--text-color) !important;
@@ -316,10 +316,9 @@ body {
 }
 
 .in-message-chart-container {
-    width: 100%; /* Make it take full width of its parent (.message-content) */
-    /* max-width: 500px; /* Remove or increase this fixed max-width */
-    max-width: 100%; /* Or set to a larger value like 600px if 100% is too big */
-    height: 280px; /* Slightly increased height */
+    width: 100%;
+    max-width: 100%;
+    height: 280px;
     margin-top: 15px;
     margin-bottom: 5px;
     padding: 10px;
