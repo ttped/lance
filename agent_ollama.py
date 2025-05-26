@@ -38,6 +38,11 @@ class CustomOllamaFunctionsOutputParser(AgentOutputParser):
                 if "tool" in response_json and "tool_input" in response_json:
                     tool = response_json["tool"]
                     tool_input = response_json["tool_input"]
+                    
+                    # Special handling for final_answer tool
+                    if tool == "final_answer":
+                        return AgentFinish(return_values={"output": tool_input}, log=text)
+                    
                     return AgentAction(tool=tool, tool_input=tool_input, log=text)
                 # Check for LLM wrapping its answer in common keys
                 elif "response" in response_json and isinstance(response_json["response"], str):
@@ -77,6 +82,7 @@ class QueryType(Enum):
     GENERAL_QUESTION = "general_question"
     HYBRID_QUERY = "hybrid_query"
     GET_MAINTENANCE_DATA = "get_maintenance_data"
+    GET_PART_HIERARCHY = "get_part_hierarchy"
 
 class QueryClassification(BaseModel):
     query_type: QueryType
@@ -167,49 +173,35 @@ class EnhancedEngineeringAgent:
     def classify_query(self, query: str) -> QueryClassification:
         """Classify the type of query and extract relevant information using an Ollama model."""
         
-        # This prompt is crucial for guiding gemma3:4b (or other Ollama models)
-        # to produce the correct JSON structure for the QueryClassification Pydantic model.
-        # It explicitly asks for a JSON object and provides examples of the expected structure.
-        classification_prompt_template = """
-You are an expert query classifier for an engineering knowledge system. Your task is to analyze the user's query
-and respond *only* with a valid JSON object that strictly adheres to the following structure:
+        # todo: auto populate query type
+        # Much more concise classification prompt
+        classification_prompt_template = """Classify this engineering query into JSON format:
+Query: "{query}"
+
+Response as JSON only:
 {{
-  "query_type": "string (must be one of: 'part_query', 'document_search', 'general_question', 'hybrid_query', 'get_maintenance_data')",
-  "part_identifiers": ["list of strings (extracted part numbers or names, e.g., '123', 'XYZ-001', '1.1.2.3')"],
-  "requires_rag": "boolean (true if document search is needed for an engineering context, false otherwise for general/philosophical questions or if the question can be answered from common knowledge)",
-  "search_keywords": ["list of strings (key terms for document retrieval if requires_rag is true, or general keywords from the query if false)"],
-  "confidence": "float (a score between 0.0 and 1.0 indicating your confidence in the classification)"
+"query_type": "one of: part_query, document_search, general_question, hybrid_query, get_maintenance_data",
+"part_identifiers": ["extracted part names/numbers"],
+"requires_rag": "true/false",
+"search_keywords": ["key terms"],
+"confidence": "0.0-1.0"
 }}
 
-Analyze the following user query:
-User Query: "{query}"
+Classification Rules:
+- get_maintenance_data: if mentions maintenance, AWP, AWM, AWPM, trends
+- part_query: if asks about specific parts/hierarchy  
+- document_search: if asks for RAG/document search
+- general_question: for non-engineering questions
 
-Important: Look for hierarchical part numbers like 1.1.2.3, 1.2.4, etc. These should be included in part_identifiers.
-Set "requires_rag" to false for questions that are clearly non-engineering, philosophical, common sense, or common knowledge (e.g., "what is love?", "what is the capital of France?"). Only set "requires_rag" to true if the question implies seeking information from specific engineering documents.
+Examples:
+"Show me maintenance data for TIE Fighter" → {{"query_type": "get_maintenance_data", "part_identifiers": ["TIE Fighter"], "requires_rag": false, "search_keywords": ["maintenance", "TIE Fighter"], "confidence": 0.95}}
+"What is part 123?" → {{"query_type": "part_query", "part_identifiers": ["123"], "requires_rag": false, "search_keywords": ["part", "123"], "confidence": 0.95}}
 
-Examples of mapping queries to JSON:
-1. Query: "What is the hierarchy for part-123?"
-   JSON: {{"query_type": "part_query", "part_identifiers": ["123"], "requires_rag": false, "search_keywords": ["hierarchy", "part-123"], "confidence": 0.95}}
-2. Query: "Show me part 1.1.2.3"
-   JSON: {{"query_type": "part_query", "part_identifiers": ["1.1.2.3"], "requires_rag": false, "search_keywords": ["part 1.1.2.3"], "confidence": 0.95}}
-3. Query: "Find all documentation about thermal analysis for component ABC"
-   JSON: {{"query_type": "hybrid_query", "part_identifiers": ["ABC"], "requires_rag": true, "search_keywords": ["thermal analysis", "component ABC", "documentation"], "confidence": 0.9}}
-4. Query: "What is the difference between steel and aluminum?"
-   JSON: {{"query_type": "general_question", "part_identifiers": [], "requires_rag": false, "search_keywords": ["steel", "aluminum", "difference"], "confidence": 0.85}}
-5. Query: "What is love?"
-   JSON: {{"query_type": "general_question", "part_identifiers": [], "requires_rag": false, "search_keywords": ["love"], "confidence": 0.98}}
-6. Query: "Tell me about the reliability of the X12 pump and search for maintenance guides/data."
-   JSON: {{"query_type": "get_maintenance_data", "part_identifiers": ["X12 pump"], "requires_rag": true, "search_keywords": ["reliability", "X12 pump", "maintenance guides"], "confidence": 0.92}}
-7. Query: "Get maintenance data for Compressor-123."
-   JSON: {{"query_type": "get_maintenance_data", "part_identifiers": ["Compressor-123"], "requires_rag": false, "search_keywords": ["maintenance data", "Compressor-123"], "confidence": 0.98}}
-8. Query: "Show me the AWM numbers for Sensor-A."
-   JSON: {{"query_type": "get_maintenance_data", "part_identifiers": ["Sensor-A"], "requires_rag": false, "search_keywords": ["AWM numbers", "Sensor-A", "maintenance"], "confidence": 0.95}}
-   
-Your JSON Response (ONLY the JSON object):"""
+JSON only:"""
         
         prompt = PromptTemplate.from_template(classification_prompt_template)
         
-        # It expects the LLM (self.llm which has format="json") to output JSON that Pydantic can parse into QueryClassification.
+        # Rest of the method remains the same
         chain = prompt | self.llm 
         try:
             response_message = chain.invoke({"query": query})
@@ -222,9 +214,9 @@ Your JSON Response (ONLY the JSON object):"""
             else:
                 # Try to find JSON object within the string
                 if not (json_string_output.strip().startswith("{") and json_string_output.strip().endswith("}")):
-                     match_curly = re.search(r"(\{.*?\})", json_string_output, re.DOTALL)
-                     if match_curly:
-                         json_string_output = match_curly.group(1)
+                    match_curly = re.search(r"(\{.*?\})", json_string_output, re.DOTALL)
+                    if match_curly:
+                        json_string_output = match_curly.group(1)
 
             parsed_json = json.loads(json_string_output)
             return QueryClassification(**parsed_json)
@@ -305,36 +297,45 @@ Your JSON Response (ONLY the JSON object):"""
         except Exception as e:
             return [{"content": f"Error in placeholder search_documents: {str(e)}", "metadata": {}, "score": 0.0, "source": "SystemInternal"}]
 
+    def final_answer(self, answer: str) -> str:
+        """Provide the final answer to the user's query."""
+        return answer
 
     def create_tools(self) -> List[Tool]:
         """Create tools for the agent. Descriptions should be extremely clear and self-contained.
 		Should describe when to use the tool, input expectations, and output nature.
 		"""
         return [
-			Tool(
-				name="get_part_hierarchy",
-				func=self.get_part_hierarchy,
-				description='''
-				Use this tool to retrieve the hierarchical structure and detailed information for a specific engineering part. 
-				Input MUST be a single string representing the exact part number (e.g., '1.1.2.3', 'Compressor-X45'). 
-				Output is a JSON object containing part details, hierarchy list, and metadata.'''
-			),
-			Tool(
-				name="search_documents",
-				func=self.search_documents,
-				description='''Use this tool to search relevant engineering documents, manuals, or reports based on a natural language query.
-				Input MUST be a string containing the search query. 
-				The query can include part numbers, technical concepts, or problem descriptions. 
-				Output is a list of relevant document chunks with their sources and content.'''
-			),
-			Tool(
-				name="get_maintenance_data",
-				func=self.get_maintenance_data,
-				description='''Use this tool to fetch time-series data regarding parts awaiting maintenance (AWP), 
-				awaiting manufacturing (AWM), or both (AWPM) for a specific part. 
-				Input MUST be a single string representing the part name (e.g., 'Pump-X12', 'Sensor-Unit-A'). 
-				Output is a JSON object containing dates and corresponding counts, suitable for generating a time-series chart.'''
-			),
+            Tool(
+                name="get_part_hierarchy",
+                func=self.get_part_hierarchy,
+                description='''Use this tool to retrieve the hierarchical structure and detailed information for a specific engineering part. 
+                Input MUST be a single string representing the exact part number (e.g., '1.1.2.3', 'Compressor-X45'). 
+                Output is a JSON object containing part details, hierarchy list, and metadata.'''
+            ),
+            Tool(
+                name="search_documents",
+                func=self.search_documents,
+                description='''Use this tool to search relevant engineering documents, manuals, or reports based on a natural language query.
+                Input MUST be a string containing the search query. 
+                The query can include part numbers, technical concepts, or problem descriptions. 
+                Output is a list of relevant document chunks with their sources and content.'''
+            ),
+            Tool(
+                name="get_maintenance_data",
+                func=self.get_maintenance_data,
+                description='''Use this tool when the user asks about maintenance data, AWP (awaiting parts), AWM (awaiting manufacturing), AWPM counts, maintenance trends, or time-series maintenance information for a part.
+                TRIGGER WORDS: "maintenance", "AWP", "AWM", "AWPM", "awaiting", "trends", "maintenance data", "time-series"
+                Input MUST be a single string representing the part name (e.g., 'Pump-X12', 'Sensor-Unit-A', 'TIE Fighter'). 
+                Output is a JSON object containing dates and counts for AWP/AWM/AWPM, suitable for generating maintenance trend charts.'''
+            ),
+            Tool(
+                name="final_answer",
+                func=self.final_answer,
+                description='''Use this tool to provide your final answer to the user's query. 
+                Input MUST be a complete, well-formatted answer string that synthesizes all the information gathered from previous tool calls. 
+                This should be the LAST tool you call after gathering all necessary information.'''
+            ),
         ]
 
     def _extract_tool_history(self, intermediate_steps: List[Tuple[AgentAction, str]]) -> Dict[str, Set[str]]:
@@ -360,75 +361,54 @@ Your JSON Response (ONLY the JSON object):"""
         agent_prompt_template = """You are a helpful and methodical engineering assistant.
 Your primary goal is to answer the User's Query: {input}
 
+**Query Analysis:**
+- Classified as: {query_type}
+- Part identifiers found: {part_identifiers}
+- Based on this classification, select the appropriate tool accordingly.
+
 You have access to the following tools:
 {tools_string}
 
 **Critical Instructions:**
 
-1.  **TOOL USAGE - GENERAL PRINCIPLES**:
-    * Carefully review the User's Query: "{input}" and the available tools listed above ({tools_string}).
-    * For each tool, read its description THOROUGHLY to understand its specific purpose, when it should be used, the expected input format, and the nature of its output.
-    * If a tool's description clearly indicates it can address the user's information need, and you do not already have this information (check Scratchpad), then consider using that tool.
-    * Base your decision to use a tool primarily on its description.
-    * For clearly non-engineering, philosophical, or common knowledge questions (e.g., "what is love?", "what's the weather like?"), AVOID using any of the specialized engineering tools. Answer these from general knowledge unless the query explicitly asks for an engineering perspective on that topic.
+1. **TOOL SELECTION PRIORITY**: 
+   - If the query mentions "maintenance", "AWP", "AWM", "AWPM", "maintenance_data", or "get_maintenance_data", use get_maintenance_data tool FIRST
+   - If the query asks for part hierarchy or part information, use get_part_hierarchy tool FIRST  
+   - If the query asks for document search or RAG, use search_documents tool FIRST
+   - Pay close attention to any "IMPORTANT" instructions in the User's Query
 
-2.  **AVOID TOOL LOOPS**: 
-    * If you've already called a tool with the *exact same input* for the current query, DO NOT call it again unless the previous attempt failed or provided no information.
-    * If a tool has provided relevant information, use that information to answer the user.
-    * Limit tool calls to a maximum of 2-3 unique tool calls per user query if absolutely necessary to resolve the query. Prioritize answering with information already gathered.
+2. **ALWAYS end with final_answer**: After gathering information using other tools, you MUST call the "final_answer" tool to provide your response to the user.
 
-3.  **WHEN TO USE A TOOL (TOOL CALL JSON)**: 
-    If, based on Instruction 1 and the Decision Process, you determine a tool call is necessary, respond ONLY with a single valid JSON object strictly matching this format:
-    ```json
-    {{
-      "tool": "string (must be one of: [{tool_names}])",
-      "tool_input": "string or JSON string (the input for the tool. This input MUST be directly and accurately derived from the User's Query and adhere STRICTLY to the input requirements specified in the chosen tool's description.)"
-    }}
-    ```
+3. **Tool Usage Flow**:
+   - First, use the MOST APPROPRIATE tool based on the query type (see priority above)
+   - Then, ALWAYS call final_answer with your complete response
+   - Never provide an answer without using the final_answer tool
 
-4.  **WHEN TO RESPOND DIRECTLY (FINAL ANSWER JSON)**:
-    If you have sufficient information (from previous tool use, as seen in the Scratchpad's "Observation:", or general knowledge) to answer the User's Query directly,
-    respond ONLY with a single valid JSON object with a single key "answer":
-    ```json
-    {{
-      "answer": "Your comprehensive, plain text answer here, synthesizing all relevant information.
-                 If your answer uses information retrieved from tools (details of which would be in an 'Observation:'):
-                   - If the Observation is from the 'search_documents' tool and contains document excerpts, your answer should primarily be a summary or synthesis of these excerpts relevant to the User's Query. You MUST state the source (e.g., document name or ID if available) for the information. For example: 'According to tie_fighter.txt, the TIE fighter is manufactured by Sienar Fleet Systems. It also mentions...' or 'The search results for "TIE fighter" indicate that it is a single-pilot starfighter (Source: T981-TF02_manual.pdf).'
-                   - If the Observation is from other tools (like 'get_part_hierarchy' or 'get_maintenance_data') and contains structured data, your answer should acknowledge this by summarizing what was retrieved (e.g., 'I have retrieved the maintenance data for [Part Name]. It includes dates, AWP counts...').
-                 The actual data (like full document content or raw structured data) will be handled by the system, but your textual answer should confirm its retrieval and provide the requested summary or description based on the Observation.
-                 IMPORTANT: If a tool was used but its output (Observation) is clearly irrelevant to the original User's Query, prioritize answering the User's Query using your general knowledge. In such cases, you should OMIT the irrelevant tool findings from your answer or, at most, very briefly state that a search/tool did not yield relevant information, then proceed with the general knowledge answer."
-    }}
-    ```
+4. **Tool Response Format**: 
+   Always respond with a valid JSON object:
+   ```json
+   {{
+     "tool": "tool_name", 
+     "tool_input": "appropriate input for the tool"
+   }}
+   ```
 
 5. **HANDLING INSUFFICIENT DOCUMENTATION/DATA**:
-    * If a search tool returns documents with very low relevance scores (e.g., below 0.5) or if the content of retrieved documents/data is extremely sparse or clearly not what was asked for, your answer MUST reflect this. State that "The search/tool provided limited/minimal information regarding X..." or "The retrieved data for Y was not specific to the request."
-    * Do NOT attempt to elaborate or expand on such minimal/irrelevant information using your general knowledge if the query was specific.
-    * It is better to state that the specific information is not available in the documents/data than to provide potentially misleading information.
-    
-    Do NOT use plain text directly for final answers if you are not calling a tool. Always wrap your final textual answer in the JSON structure specified above.
+   * If the content of retrieved documents/data is extremely sparse or clearly not what was asked for, your answer MUST reflect this. State that "The search/tool provided limited/minimal information regarding X..." or "The retrieved data for Y was not specific to the request."
+   * Do NOT attempt to elaborate or expand on such minimal/irrelevant information using your general knowledge if the query was specific.
+   * It is better to state that the specific information is not available in the documents/data than to provide potentially misleading information.
+   
+   Do NOT use plain text directly for final answers if you are not calling a tool. Always wrap your final textual answer in the JSON structure specified above.
 
 **Tool Usage History:**
 {tool_history}
 
 **Decision Process:**
-1.  Examine the User's Query: "{input}" and the Scratchpad: "{agent_scratchpad}".
-2.  Does the Scratchpad contain an "Observation:" with information from a recent tool call?
-    * If YES:
-        a. Critically evaluate if the Observation's content is relevant and helpful for answering the original User's Query. Consult the tool descriptions provided at the beginning of this prompt to understand the expected nature of this Observation.
-		b.  If the Observation provides the specific information the user asked for (e.g., hierarchy details, maintenance data, or document excerpts from 'search_documents' that address the query): This information IS considered sufficient. You MUST formulate your comprehensive answer using these details (summarizing document excerpts if they came from 'search_documents', or describing retrieved data for other tools) and provide it in the FINAL ANSWER JSON format as described in Instruction 4. DO NOT call the same tool again for the same input in this turn.
-        c.  If the Observation is relevant but NOT sufficient, or if it's an error message from the tool: Re-evaluate the User's Query. Is another tool call (with a different tool or different input) necessary and justified by a tool's description? Or can you now answer with the partial information or general knowledge?
-        d.  If the Observation is clearly irrelevant (e.g., tool called inappropriately, a search tool returned no relevant results for the specific query, or a data-retrieval tool failed to return the expected data structure): Disregard the irrelevant tool output. Formulate your answer to the User's Query using your general knowledge (if appropriate for the query type) or state that the information could not be found or the tool did not provide the necessary data. Provide this answer in the FINAL ANSWER JSON format. 
+1. Examine the User's Query and the Scratchpad.
+2. If you haven't gathered the necessary information yet, call the appropriate information-gathering tool
+3. Once you have sufficient information, call the final_answer tool with your complete response.
+4. Remember: final_answer should always be your last tool call
 
-3.  If NO relevant Observation exists:
-    a. Re-evaluate the User's Query based on Instruction 1 (TOOL USAGE - GENERAL PRINCIPLES). Is it an engineering query potentially solvable by one of the tools described at the beginning of this prompt, or a general/philosophical one best answered from general knowledge?
-    b.  If a tool is deemed appropriate and necessary according to its description: Respond with the TOOL CALL JSON. 
-		Ensure the `tool_input` is directly derived from the User's Query and strictly follows the input format specified in the tool's description.
-    c.  If no tool is needed or appropriate (especially for non-engineering queries or if no tool description matches the need): 
-		Formulate your answer using general knowledge. Provide this answer in the FINAL ANSWER JSON format.
-
-4. If an Observation exists then attempt to answer the question.
-
-User's Query: {input}
 Scratchpad:
 {agent_scratchpad}
 
@@ -438,34 +418,27 @@ Your response (ensure it's one of the valid JSON formats described above):"""
 		
 		# Define a small function to print the LLM's input
         def print_llm_input_passthrough(prompt_value: ChatPromptValue):
-            # The 'prompt_value' is what the 'prompt' object above produces
-            # and what will be sent to 'self.tool_llm'
             print("\n================ LLM Input (Full Prompt) ================")
-            # .to_string() is usually a good way to see the text as the LLM would
             print(prompt_value.to_string())
-            # If you want to see the structured messages (e.g., HumanMessage, SystemMessage)
-            # you can iterate through prompt_value.to_messages()
-            # for message in prompt_value.to_messages():
-            # print(f"Type: {type(message)}, Content Preview: {str(message.content)[:200]}...")
             print("================ End LLM Input ================\n")
-            return prompt_value # Important: return it unchanged to pass to the next step
-        
-        # We will not use bind_tools() if gemma3:4b doesn't support the 'tools' API parameter.
-        # self.tool_llm is already ChatOllama(..., format="json", ...), which is suitable
-        # for generating JSON based on the prompt.
-        # agent_llm_with_tools = self.tool_llm.bind_tools(tools) # COMMENT OUT or REMOVE this line
+            return prompt_value
+
+        # Create a parser instance that can track state
+        output_parser = CustomOllamaFunctionsOutputParser()
 
         agent = (
             RunnablePassthrough.assign(
                 agent_scratchpad=lambda x: self._format_agent_scratchpad(x.get("intermediate_steps", [])),
                 tools_string=lambda x: tools_string,
                 tool_names=lambda x: tool_names_str,
-                tool_history=lambda x: self._format_tool_history(x.get("intermediate_steps", []))
+                tool_history=lambda x: self._format_tool_history(x.get("intermediate_steps", [])),
+                query_type=lambda x: x.get("query_type", "unknown"),  # ADD THIS
+                part_identifiers=lambda x: x.get("part_identifiers", [])  # ADD THIS
             )
             | prompt
-			| RunnableLambda(print_llm_input_passthrough)
+            | RunnableLambda(print_llm_input_passthrough)
             | self.tool_llm
-            | CustomOllamaFunctionsOutputParser() 
+            | output_parser
         )
         
         return AgentExecutor(
@@ -475,7 +448,7 @@ Your response (ensure it's one of the valid JSON formats described above):"""
             return_intermediate_steps=True,
             handle_parsing_errors="An error occurred. Please try rephrasing your request.",
             max_iterations=3,
-            early_stopping_method="force"  # force / generate
+            early_stopping_method="force"
         )
 
     def _format_tool_history(self, intermediate_steps: List[Tuple[AgentAction, str]]) -> str:
@@ -494,31 +467,55 @@ Your response (ensure it's one of the valid JSON formats described above):"""
         return history_str
 
     def _format_agent_scratchpad(self, intermediate_steps: List[Tuple[AgentAction, str]]) -> str:
-        """Formats the agent's scratchpad. (Using the last suggested version with summarization)"""
+        """Formats the agent's scratchpad."""
         log = ""
-        if not intermediate_steps: return log
+        if not intermediate_steps: 
+            return log
 
+        has_info_gathering_results = False
+        called_final_answer = False
+        
         for i, (action, observation) in enumerate(intermediate_steps):
             log += f"Previous Action Log (Iteration {i+1}): {action.log}\n"
+            
+            # Check if we've called final_answer
+            if hasattr(action, 'tool') and action.tool == "final_answer":
+                called_final_answer = True
+            elif hasattr(action, 'tool') and action.tool in ["get_part_hierarchy", "search_documents", "get_maintenance_data"]:
+                has_info_gathering_results = True
+            
+            # Format observation
             obs_summary, max_obs_length = "", 300
             if isinstance(observation, str):
                 obs_summary = (observation[:max_obs_length - 3] + "...") if len(observation) > max_obs_length else observation
             elif isinstance(observation, (list, dict)):
-                try: obs_str = json.dumps(observation)
-                except TypeError: obs_str = str(observation)
+                try: 
+                    obs_str = json.dumps(observation)
+                except TypeError: 
+                    obs_str = str(observation)
                 obs_summary = (obs_str[:max_obs_length - 3] + "...") if len(obs_str) > max_obs_length else obs_str
-            elif observation is None: obs_summary = "No observation was returned from the tool."
+            elif observation is None: 
+                obs_summary = "No observation was returned from the tool."
             else:
                 obs_summary = f"Observation received (type: {type(observation).__name__}, summary might be limited)."
                 try:
                     str_repr = str(observation)
                     obs_summary = (str_repr[:max_obs_length - 3] + "...") if len(str_repr) > max_obs_length else str_repr
-                except Exception: pass
+                except Exception: 
+                    pass
             log += f"Observation (Iteration {i+1}): {obs_summary}\n\n"
         
         if log:
-            log += "Based on the User's Query and the history above (including your previous actions and their observations), decide your next step. If you have sufficient information from an observation to answer the query, provide the FINAL ANSWER JSON. Otherwise, if a tool is necessary, provide the TOOL CALL JSON."
+            if called_final_answer:
+                log += "You have already provided the final answer. No further action needed."
+            elif has_info_gathering_results:
+                log += """You have gathered information from tools. Now you MUST call the final_answer tool with your complete response.
+        Example: {"tool": "final_answer", "tool_input": "Based on the search results, [your complete answer here]"}"""
+            else:
+                log += "Based on the User's Query, select the appropriate tool to gather information."
+        
         return log
+
 
     async def _handle_direct_general_question(self, query: str, response_payload: Dict[str, Any]) -> bool:
         """
@@ -670,12 +667,31 @@ Your JSON Response:"""
                         response_payload["maintenance_data"] = observation
 
     async def _invoke_agent_and_process_results(self, query: str, classification: QueryClassification, response_payload: Dict[str, Any]):
-        """
-        Creates the agent executor, invokes it, and processes its results.
-        """
+        """Creates the agent executor, invokes it, and processes its results."""
+        
+        # Add debug logging
+        print(f"[DEBUG] Query classification type: {classification.query_type}")
+        print(f"[DEBUG] Part identifiers: {classification.part_identifiers}")
+        
+        # Provide hints based on classification
+        # Provide stronger, more directive hints
+        hint = ""
+        if classification.query_type == QueryType.GET_MAINTENANCE_DATA and classification.part_identifiers:
+            hint = f"\n\nIMPORTANT: You MUST use the get_maintenance_data tool for part '{classification.part_identifiers[0]}' to answer this query. Do NOT use other tools first."
+        elif classification.query_type == QueryType.PART_QUERY and classification.part_identifiers:
+            hint = f"\n\nIMPORTANT: You MUST use the get_part_hierarchy tool for part '{classification.part_identifiers[0]}' to answer this query."
+        elif "rag" in query.lower() and classification.requires_rag:
+            hint = "\n\nIMPORTANT: You MUST use the search_documents tool for this RAG search."
+        
+        augmented_query = query + hint
+        agent_input = {
+            "input": augmented_query,
+            "query_type": classification.query_type.value,  # Add this
+            "part_identifiers": classification.part_identifiers  # And this
+        }
+        
         agent_executor = self.create_agent_executor()
-        agent_input = {"input": query} # Intermediate steps will be added by the RunnablePassthrough
-
+        
         try:
             result = await agent_executor.ainvoke(agent_input)
             self._process_agent_output(result, response_payload)
@@ -684,7 +700,6 @@ Your JSON Response:"""
             import traceback
             traceback.print_exc()
             response_payload["answer"] = "I encountered an error while processing your request with my tools."
-
 
 
     async def process_query(self, query: str) -> Dict[str, Any]:
