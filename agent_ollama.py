@@ -310,22 +310,30 @@ Your JSON Response (ONLY the JSON object):"""
 		Should describe when to use the tool, input expectations, and output nature.
 		"""
         return [
-            Tool(
-                name="get_part_hierarchy",
-                func=self.get_part_hierarchy,
-                description="Use this tool to get the hierarchy and details for a specific part number. The input should be a single string representing the part number."
-            ),
-            Tool(
-                name="search_documents",
-                func=self.search_documents,
-                description="Use this tool to search engineering documents using a natural language query. The input should be the search query string. You can include part numbers or concepts in your query."
-            ),
-            Tool(
-                name="get_maintenance_data",
-                func=self.get_maintenance_data,
-                description="Use this tool to get data on parts awaiting maintenance for a specific part name. The input should be the part name as a string, for example 'Pump-X12' or 'Sensor-Unit-A'. This tool returns data suitable for plotting a time-series chart.",
-                # args_schema=PartMaintenanceInput # Optional: if you want Pydantic validation for tool input
-            ),
+			Tool(
+				name="get_part_hierarchy",
+				func=self.get_part_hierarchy,
+				description='''
+				Use this tool to retrieve the hierarchical structure and detailed information for a specific engineering part. 
+				Input MUST be a single string representing the exact part number (e.g., '1.1.2.3', 'Compressor-X45'). 
+				Output is a JSON object containing part details, hierarchy list, and metadata.'''
+			),
+			Tool(
+				name="search_documents",
+				func=self.search_documents,
+				description='''Use this tool to search relevant engineering documents, manuals, or reports based on a natural language query.
+				Input MUST be a string containing the search query. 
+				The query can include part numbers, technical concepts, or problem descriptions. 
+				Output is a list of relevant document chunks with their sources and content.'''
+			),
+			Tool(
+				name="get_maintenance_data",
+				func=self.get_maintenance_data,
+				description='''Use this tool to fetch time-series data regarding parts awaiting maintenance (AWP), 
+				awaiting manufacturing (AWM), or both (AWPM) for a specific part. 
+				Input MUST be a single string representing the part name (e.g., 'Pump-X12', 'Sensor-Unit-A'). 
+				Output is a JSON object containing dates and corresponding counts, suitable for generating a time-series chart.'''
+			),
         ]
 
     def _extract_tool_history(self, intermediate_steps: List[Tuple[AgentAction, str]]) -> Dict[str, Set[str]]:
@@ -356,24 +364,24 @@ You have access to the following tools:
 
 **Critical Instructions:**
 
-1.  **TOOL USAGE SCOPE**:
-    * If the User's Query clearly pertains to specific engineering topics (like components, materials, part numbers, technical processes, specifications) AND the query classification suggests a document search is appropriate, STRONGLY prefer using the `search_documents` tool.
-    * Use `get_part_hierarchy` for specific part number inquiries.
-    * If the query is about maintenance status, "parts awaiting maintenance", "maintenance backlog", or similar for a specific part, use `get_maintenance_data`. The tool input for `get_maintenance_data` should be the part name (e.g., "PartX" or "Compressor-123").
-    * For clearly non-engineering, philosophical, or common knowledge questions (e.g., "what is love?", "what's the weather like?"), AVOID using engineering-specific tools like `search_documents` or `get_part_hierarchy`. Answer these from general knowledge unless the query explicitly asks for an engineering perspective on that topic.
+1.  **TOOL USAGE - GENERAL PRINCIPLES**:
+    * Carefully review the User's Query: "{input}" and the available tools listed above ({tools_string}).
+    * For each tool, read its description THOROUGHLY to understand its specific purpose, when it should be used, the expected input format, and the nature of its output.
+    * If a tool's description clearly indicates it can address the user's information need, and you do not already have this information (check Scratchpad), then consider using that tool.
+    * Base your decision to use a tool primarily on its description.
+    * For clearly non-engineering, philosophical, or common knowledge questions (e.g., "what is love?", "what's the weather like?"), AVOID using any of the specialized engineering tools. Answer these from general knowledge unless the query explicitly asks for an engineering perspective on that topic.
 
 2.  **AVOID TOOL LOOPS**: 
     * If you've already called a tool with the *exact same input* for the current query, DO NOT call it again unless the previous attempt failed or provided no information.
     * If a tool has provided relevant information, use that information to answer the user.
-    * Maximum of 1 call to `get_maintenance_data` per specific part name in a single user query.
-    * Maximum of 2 calls total for other unique tools for the current query if absolutely necessary.
+    * Limit tool calls to a maximum of 2-3 unique tool calls per user query if absolutely necessary to resolve the query. Prioritize answering with information already gathered.
 
 3.  **WHEN TO USE A TOOL (TOOL CALL JSON)**: 
-    If, based on Instruction 1 and the Decision Process, you determine a tool call is necessary to gather information, respond ONLY with a single valid JSON object strictly matching this format:
+    If, based on Instruction 1 and the Decision Process, you determine a tool call is necessary, respond ONLY with a single valid JSON object strictly matching this format:
     ```json
     {{
       "tool": "string (must be one of: [{tool_names}])",
-      "tool_input": "string (the input for the tool. This input MUST be directly and accurately derived from the User's Query. For `search_documents`, use key phrases from the query. Do NOT invent unrelated engineering terms if the query is non-engineering.)"
+      "tool_input": "string or JSON string (the input for the tool. This input MUST be directly and accurately derived from the User's Query and adhere STRICTLY to the input requirements specified in the chosen tool's description.)"
     }}
     ```
 
@@ -382,16 +390,19 @@ You have access to the following tools:
     respond ONLY with a single valid JSON object with a single key "answer":
     ```json
     {{
-      "answer": "Your comprehensive, plain text answer here, synthesizing all relevant information. If your answer uses information retrieved from documents (details of which would be in an 'Observation:' from a 'search_documents' tool call), you MUST explicitly state the source document names in parentheses after the relevant piece of information, e.g., 'The device operates at 50Hz (Source: device_manual.pdf).' or 'Key safety measures include X, Y, and Z (Source: safety_guide.txt).' If multiple documents support a statement, you can list them, e.g., (Source: report_A.docx, data_sheet.csv). If a tool like `get_maintenance_data` was used and returned structured data, your answer should acknowledge this, e.g., 'I have retrieved the maintenance data for [Part Name]. The data includes dates, AWP counts, AWM counts, and AWPM counts.' or 'Maintenance data for [Part Name] is now available.' The actual data will be handled by the system, but your textual answer should confirm its retrieval. IMPORTANT: If a tool was used but its output (Observation) is clearly irrelevant to the original User's Query, prioritize answering the User's Query using your general knowledge. In such cases, you should OMIT the irrelevant tool findings from your answer or, at most, very briefly state that a document search did not yield relevant information to the specific query, then proceed with the general knowledge answer."
+      "answer": "Your comprehensive, plain text answer here, synthesizing all relevant information. 
+                 If your answer uses information retrieved from tools (details of which would be in an 'Observation:'), you MUST explicitly state the source or nature of the retrieved data in parentheses. 
+                 For example: 'The device operates at 50Hz (Source: device_manual.pdf).' or 'Key safety measures include X, Y, and Z (Source: safety_guide.txt).'
+                 If a tool returned structured data (e.g., for charts, tables), your answer should acknowledge this by summarizing what was retrieved. For example: 'I have retrieved the maintenance data for [Part Name]. It includes dates, AWP counts, AWM counts, and AWPM counts.' or 'Part hierarchy information for [Part Number] is now available, showing its parent and child components.'
+                 The actual data will be handled by the system, but your textual answer should confirm its retrieval and briefly describe what was found based on the Observation.
+                 IMPORTANT: If a tool was used but its output (Observation) is clearly irrelevant to the original User's Query, prioritize answering the User's Query using your general knowledge. In such cases, you should OMIT the irrelevant tool findings from your answer or, at most, very briefly state that a search/tool did not yield relevant information, then proceed with the general knowledge answer."
     }}
     ```
 
-5. **HANDLING INSUFFICIENT DOCUMENTATION**:
-    * If `search_documents` returns documents with very low relevance scores (e.g., below 0.5) or
-      if the content of retrieved documents is extremely sparse (e.g., just a title, a part number without description),
-      your answer MUST reflect this. State that "The documents provided limited/minimal information regarding X..."
-    * Do NOT attempt to elaborate or expand on such minimal information using your general knowledge.
-    * It is better to state that the information is not available in the documents than to provide potentially misleading information.
+5. **HANDLING INSUFFICIENT DOCUMENTATION/DATA**:
+    * If a search tool returns documents with very low relevance scores (e.g., below 0.5) or if the content of retrieved documents/data is extremely sparse or clearly not what was asked for, your answer MUST reflect this. State that "The search/tool provided limited/minimal information regarding X..." or "The retrieved data for Y was not specific to the request."
+    * Do NOT attempt to elaborate or expand on such minimal/irrelevant information using your general knowledge if the query was specific.
+    * It is better to state that the specific information is not available in the documents/data than to provide potentially misleading information.
     
     Do NOT use plain text directly for final answers if you are not calling a tool. Always wrap your final textual answer in the JSON structure specified above.
 
@@ -402,16 +413,15 @@ You have access to the following tools:
 1.  Examine the User's Query: "{input}" and the Scratchpad: "{agent_scratchpad}".
 2.  Does the Scratchpad contain an "Observation:" with information from a recent tool call?
     * If YES:
-        a.  Critically evaluate if the Observation's content is relevant and helpful for answering the original User's Query.
-        b.  If the Observation is from `get_part_hierarchy` and contains part details: This information IS considered sufficient for answering a query about that part's hierarchy. You MUST formulate your comprehensive answer using these details and provide it in the FINAL ANSWER JSON format. DO NOT call `get_part_hierarchy` again for the same part in this turn.
-        c.  If the Observation is from `get_maintenance_data` and contains maintenance data (like dates, awp_counts, etc.): This data IS the answer. You MUST acknowledge receipt of this data and state that it has been retrieved (e.g., "Maintenance data for [part_name] has been retrieved and is available."). Provide this acknowledgement in the FINAL ANSWER JSON format. DO NOT call `get_maintenance_data` again for the same part in this turn.
-        d.  For other tools (like `search_documents`), or if a tool like `get_part_hierarchy` or `get_maintenance_data` returned an error or clearly insufficient/irrelevant information: If the Observation is relevant and sufficient to answer the query based on the retrieved content: Formulate your comprehensive answer based on the User's Query and the relevant parts of the Observation. Provide this answer in the FINAL ANSWER JSON format.
-        e.  If the Observation is clearly irrelevant (e.g., tool called inappropriately, a search tool returned no relevant results for the specific query, or a data-retrieval tool like `get_maintenance_data` failed to return the expected data structure): Disregard the irrelevant tool output. Formulate your answer to the User's Query using your general knowledge (if appropriate for the query type) or state that the information could not be found or the tool did not provide the necessary data. Provide this answer in the FINAL ANSWER JSON format. You might state something like, "I attempted to retrieve maintenance data but did not find specific information. However, generally speaking, [answer to original query if applicable]..." or simply provide the general answer directly if no tool was meant to be used.
+        a.  Critically evaluate if the Observation's content is relevant and helpful for answering the original User's Query. Consult the tool's description (from {tools_string}) to understand the expected nature of this Observation.
+        b.  If the Observation provides the specific information the user asked for (e.g., hierarchy details, maintenance data, document excerpts that answer the query): This information IS considered sufficient. You MUST formulate your comprehensive answer using these details and provide it in the FINAL ANSWER JSON format. DO NOT call the same tool again for the same input in this turn.
+        c.  If the Observation is relevant but NOT sufficient, or if it's an error message from the tool: Re-evaluate the User's Query. Is another tool call (with a different tool or different input) necessary and justified by a tool's description? Or can you now answer with the partial information or general knowledge?
+        d.  If the Observation is clearly irrelevant (e.g., tool called inappropriately, a search tool returned no relevant results for the specific query, or a data-retrieval tool failed to return the expected data structure): Disregard the irrelevant tool output. Formulate your answer to the User's Query using your general knowledge (if appropriate for the query type) or state that the information could not be found or the tool did not provide the necessary data. Provide this answer in the FINAL ANSWER JSON format. 
 
-3.  If NO relevant Observation exists, or if more information is still needed:
-    a.  Re-evaluate the User's Query based on Instruction 1 (TOOL USAGE SCOPE). Is it an engineering query needing tools, or a general/philosophical one best answered from general knowledge?
-    b.  If a tool is deemed appropriate and necessary for an engineering query: Respond with the TOOL CALL JSON. Ensure the `tool_input` is directly derived from the User's Query and targeted.
-    c.  If no tool is needed or appropriate (especially for non-engineering queries): Formulate your answer using general knowledge. Provide this answer in the FINAL ANSWER JSON format.
+3.  If NO relevant Observation exists, or if more information is still needed after evaluating an Observation:
+    a.  Re-evaluate the User's Query based on Instruction 1 (TOOL USAGE - GENERAL PRINCIPLES). Is it an engineering query potentially solvable by one of the tools described in {tools_string}, or a general/philosophical one best answered from general knowledge?
+    b.  If a tool is deemed appropriate and necessary according to its description: Respond with the TOOL CALL JSON. Ensure the `tool_input` is directly derived from the User's Query and strictly follows the input format specified in the tool's description.
+    c.  If no tool is needed or appropriate (especially for non-engineering queries or if no tool description matches the need): Formulate your answer using general knowledge. Provide this answer in the FINAL ANSWER JSON format.
 
 User's Query: {input}
 Scratchpad:
