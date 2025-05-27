@@ -511,9 +511,24 @@
         }
 
         function Citation({ citation, index }) {
-            const getFileIcon = (source) => { if (!source || typeof source !== 'string') return '📋'; const ext = source.split('.').pop()?.toLowerCase(); switch (ext) { case 'pdf': return '📄'; case 'csv': return '📊'; case 'pptx': case 'ppt': return '📽️'; case 'xlsx': case 'xls': return '📈'; default: return '📋'; } }; 
+            const getFileIcon = (source) => { 
+                if (!source || typeof source !== 'string') return '📋'; 
+                const ext = source.split('.').pop()?.toLowerCase(); 
+                switch (ext) { 
+                    case 'pdf': return '📄'; 
+                    case 'csv': return '📊'; 
+                    case 'pptx': case 'ppt': return '📽️'; 
+                    case 'xlsx': case 'xls': return '📈'; 
+                    default: return '📋'; 
+                } 
+            }; 
             const excerptText = citation.excerpt || "No excerpt available."; 
-            const scoreValue = typeof citation.score === 'number' ? (citation.score * 100).toFixed(0) : "N/A";
+            
+            // Display the raw distance score (lower is better)
+            const scoreValue = typeof citation.score === 'number' 
+                ? citation.score.toFixed(3) 
+                : "N/A";
+            
             return (
                 <div className="citation-card">
                     <div className="citation-header">
@@ -523,7 +538,22 @@
                         {citation.row && <span>(Row {citation.row})</span>}
                     </div>
                     <div className="citation-excerpt">{excerptText}</div>
-                    <div className="citation-score">Relevance: {scoreValue}%</div>
+                    <div className="citation-score">
+                        Distance: {scoreValue} 
+                        <span 
+                            className="score-tooltip" 
+                            title="Distance score measures how closely the source matches your query. Lower values (closer to 0) indicate better relevance, while higher values indicate less relevant matches."
+                            style={{
+                                cursor: 'help',
+                                marginLeft: '4px',
+                                fontSize: '0.85em',
+                                opacity: '0.7',
+                                fontWeight: 'bold'
+                            }}
+                        >
+                            (?)
+                        </span>
+                    </div>
                 </div>
             );
         }

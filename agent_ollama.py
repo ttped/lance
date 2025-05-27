@@ -292,7 +292,7 @@ JSON only:"""
         # For demonstration, assume vector_store has similarity_search_with_score
         try:
             # This is a simplified call, actual RAG will be more sophisticated
-            results = self.vector_store.similarity_search_with_score(query, k=2)
+            results = self.vector_store.similarity_search_with_score(query, k=5)
             return [{"content": doc.page_content, "metadata": doc.metadata, "score": score, "source": doc.metadata.get("source","Unknown")} for doc, score in results]
         except Exception as e:
             return [{"content": f"Error in placeholder search_documents: {str(e)}", "metadata": {}, "score": 0.0, "source": "SystemInternal"}]
