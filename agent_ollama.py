@@ -479,31 +479,30 @@ Your response (ensure it's one of the valid JSON formats described above):"""
         for i, (action, observation) in enumerate(intermediate_steps):
             log += f"Previous Action Log (Iteration {i+1}): {action.log}\n"
             
-            # Check if we've called final_answer
             if hasattr(action, 'tool') and action.tool == "final_answer":
                 called_final_answer = True
             elif hasattr(action, 'tool') and action.tool in ["get_part_hierarchy", "search_documents", "get_maintenance_data"]:
                 has_info_gathering_results = True
             
-            # Format observation
-            obs_summary, max_obs_length = "", 1500
+            obs_summary = ""
+            max_obs_length = 3000  # Increased from 1500 to allow more context
+
             if isinstance(observation, str):
                 obs_summary = (observation[:max_obs_length - 3] + "...") if len(observation) > max_obs_length else observation
-            elif isinstance(observation, (list, dict)):
+            elif isinstance(observation, (list, dict)): # This handles search_documents results (list of dicts)
                 try: 
-                    obs_str = json.dumps(observation)
+                    obs_str = json.dumps(observation, ensure_ascii=False) # Added ensure_ascii=False for wider char support
                 except TypeError: 
                     obs_str = str(observation)
                 obs_summary = (obs_str[:max_obs_length - 3] + "...") if len(obs_str) > max_obs_length else obs_str
             elif observation is None: 
                 obs_summary = "No observation was returned from the tool."
-            else:
-                obs_summary = f"Observation received (type: {type(observation).__name__}, summary might be limited)."
+            else: # Fallback for other types
                 try:
                     str_repr = str(observation)
                     obs_summary = (str_repr[:max_obs_length - 3] + "...") if len(str_repr) > max_obs_length else str_repr
-                except Exception: 
-                    pass
+                except Exception:
+                    obs_summary = f"Observation received (type: {type(observation).__name__}, summary might be limited)."
             log += f"Observation (Iteration {i+1}): {obs_summary}\n\n"
         
         if log:
@@ -579,7 +578,7 @@ Your JSON Response:"""
         citations, and part_info in the response_payload.
         """
         # ---- START DEBUG PRINTS ----
-        print(f"\n🔍 [_process_agent_output] Raw agent_result received by _process_agent_output:")
+        print(f"\n [_process_agent_output] Raw agent_result received by _process_agent_output:")
         print(f"Output: {agent_result.get('output')}") # This is the 'final answer' from the agent
         intermediate_steps = agent_result.get("intermediate_steps", [])
         print(f"Intermediate steps type: {type(intermediate_steps)}, Count: {len(intermediate_steps)}")
@@ -604,25 +603,26 @@ Your JSON Response:"""
         
         answer = agent_result.get("output", "I apologize, I couldn't formulate a response.")
 
-        # The 'output' from AgentExecutor (parsed by CustomOllamaFunctionsOutputParser)
-        # should already be the clean textual answer if parsing was successful.
-        # This additional cleaning is a fallback.
         if isinstance(answer, str):
             cleaned_answer = answer.strip()
-            if not cleaned_answer or cleaned_answer == "{}": # Should be less likely now
+            if not cleaned_answer or cleaned_answer == "{}": 
                 cleaned_answer = "I was unable to find specific information for your query. Could you please rephrase or provide more details?"
-            # No need to re-parse JSON here if CustomOllamaFunctionsOutputParser did its job for {"answer": ...}
             response_payload["answer"] = cleaned_answer
         else:
-            # If answer is not a string (e.g., if parser passed raw dict through on error)
             response_payload["answer"] = str(answer) if answer else "I apologize, I couldn't formulate a response."
 
 
-        # Populate citations and part_info from intermediate steps
         if intermediate_steps:
+            # Use a set to track unique chunk_ids already processed into citations for this response_payload
+            processed_chunk_ids_for_this_response = {
+                c.get("metadata", {}).get("chunk_id") 
+                for c in response_payload.get("citations", []) 
+                if isinstance(c, dict) and c.get("metadata") and c.get("metadata", {}).get("chunk_id")
+            }
+
             for step_idx, step_content in enumerate(intermediate_steps):
                 if not (isinstance(step_content, tuple) and len(step_content) == 2):
-                    continue # Skip malformed steps already logged above
+                    continue 
                 action, observation = step_content
                 tool_called = getattr(action, 'tool', '')
                 
@@ -632,36 +632,54 @@ Your JSON Response:"""
                     if not documents_from_tool:
                          print(f"[_process_agent_output] 'search_documents' observation in step {step_idx} is empty or not a list.")
 
-                    # Populate documents_retrieved field
-                    current_doc_retrieved_ids = {doc.get("metadata", {}).get("chunk_id") for doc in response_payload.get("documents_retrieved", []) if isinstance(doc, dict)}
-                    for doc_dict in documents_from_tool:
-                        if isinstance(doc_dict, dict) and doc_dict.get("metadata", {}).get("chunk_id") not in current_doc_retrieved_ids:
-                            response_payload["documents_retrieved"].append(doc_dict)
-                            current_doc_retrieved_ids.add(doc_dict.get("metadata", {}).get("chunk_id"))
-
-
-                    # Populate citations list
-                    current_citation_sources_pages = {(c.get("source"), c.get("page"), c.get("row")) for c in response_payload.get("citations", [])}
-                    for doc_idx_obs, doc_dict in enumerate(documents_from_tool):
+                    # Populate documents_retrieved field (de-duplicated by chunk_id)
+                    current_doc_retrieved_ids = {
+                        doc.get("metadata", {}).get("chunk_id") 
+                        for doc in response_payload.get("documents_retrieved", []) 
+                        if isinstance(doc, dict) and doc.get("metadata") and doc.get("metadata",{}).get("chunk_id")
+                    }
+                    for doc_dict in documents_from_tool: # doc_dict is a chunk from search results
                         if isinstance(doc_dict, dict):
-                            citation_tuple = (doc_dict.get("source"), doc_dict.get("page"), doc_dict.get("row"))
-                            if citation_tuple not in current_citation_sources_pages:
-                                print(f"[_process_agent_output] Adding citation for doc {doc_idx_obs} from observation: {doc_dict.get('source')}")
+                            retrieved_chunk_id = doc_dict.get("chunk_id") # chunk_id from search result
+                            
+                            # Add to documents_retrieved if not already there (based on chunk_id)
+                            if retrieved_chunk_id and retrieved_chunk_id not in current_doc_retrieved_ids:
+                                response_payload["documents_retrieved"].append(doc_dict) # Appending the whole doc_dict
+                                current_doc_retrieved_ids.add(retrieved_chunk_id)
+
+                            # Create citation if this chunk_id hasn't been made into a citation yet for this response
+                            if retrieved_chunk_id and retrieved_chunk_id not in processed_chunk_ids_for_this_response:
+                                print(f"[_process_agent_output] Adding citation for chunk_id: {retrieved_chunk_id} from source: {doc_dict.get('source')}, page: {doc_dict.get('page')}")
+                                
+                                new_excerpt_length = 500  # Increased excerpt length
+                                raw_content = doc_dict.get("content", "")
+                                excerpt = (raw_content[:new_excerpt_length] + "...") if len(raw_content) > new_excerpt_length else raw_content
+                                
+                                # Ensure metadata in the citation object also contains the chunk_id
+                                # The doc_dict itself should contain metadata from the RAG system
+                                citation_metadata = doc_dict.get("metadata", {}) 
+                                if not isinstance(citation_metadata, dict): # Should be a dict from RAG
+                                    citation_metadata = {}
+                                # The chunk_id is usually at the top level of doc_dict from search_with_citations,
+                                # but also expected inside its metadata field. We ensure it's in the citation's metadata.
+                                if "chunk_id" not in citation_metadata and retrieved_chunk_id:
+                                    citation_metadata["chunk_id"] = retrieved_chunk_id
+
                                 citation = {
                                     "source": doc_dict.get("source", "Unknown"),
-                                    "page": doc_dict.get("page"), 
+                                    "page": doc_dict.get("page"),
                                     "row": doc_dict.get("row"),
                                     "score": doc_dict.get("score", 0.0),
-                                    "excerpt": doc_dict.get("content", "")[:250] + "..." if doc_dict.get("content") else "",
-                                    "metadata": doc_dict.get("metadata", {}) # Contains chunk_id
+                                    "excerpt": excerpt,
+                                    "metadata": citation_metadata # Contains chunk_id and other original metadata
                                 }
                                 response_payload["citations"].append(citation)
-                                current_citation_sources_pages.add(citation_tuple)
+                                processed_chunk_ids_for_this_response.add(retrieved_chunk_id)
                 
                 elif tool_called == "get_part_hierarchy":
                     print(f"[_process_agent_output] Processing 'get_part_hierarchy' observation from step {step_idx}.")
                     if isinstance(observation, dict): 
-                        response_payload["part_info"] = observation # Assuming only one part_info needed
+                        response_payload["part_info"] = observation 
                 elif tool_called == "get_maintenance_data":
                     print(f"[_process_agent_output] Processing 'get_maintenance_data' observation from step {step_idx}.")
                     if isinstance(observation, dict) and "part_name" in observation and "dates" in observation:

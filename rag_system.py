@@ -242,12 +242,20 @@ class CitationRAG:
         collection_count = self.vector_store._collection.count() if hasattr(self.vector_store, '_collection') else "unknown"
         print(f"[search_with_citations] Vector store collection count: {collection_count}")
         
+        print(f"[search_with_citations] DEBUG: Querying ChromaDB for: '{query}', k={k}") 
         # Perform similarity search
         results_with_scores = self.vector_store.similarity_search_with_score(query, k=k)
-        print(f"[search_with_citations] Raw ChromaDB returned {len(results_with_scores)} results")
+        
+        print(f"[search_with_citations] DEBUG: ChromaDB returned {len(results_with_scores)} raw results.")
+
         
         formatted_results: List[Dict[str, Any]] = []
         for i, (doc, score) in enumerate(results_with_scores):
+            print(f"  DEBUG Raw Result {i+1}:")
+            print(f"    Score: {score:.4f}")
+            print(f"    Metadata: {doc.metadata}") # This will show 'source', 'page', 'chunk_id', etc.
+            print(f"    Content Snippet: {doc.page_content[:200]}...") # Show a bit of the content
+            print("-" * 30)
             print(f"[search_with_citations] Processing result {i+1}: score={score:.4f}, content_length={len(doc.page_content)}")
             
             metadata = doc.metadata
@@ -494,3 +502,43 @@ class OllamaEnhancedRAGAgent(EnhancedEngineeringAgent): # Inherits from the Olla
         )
         print(f"[search_documents] Retrieved {len(results)} results from RAG")
         return results
+    
+
+def debug_vector_store_contents(self, query: str = "test"):
+    """Debug what's actually stored in ChromaDB"""
+    print(f"\n=== ChromaDB Contents Debug ===")
+    
+    # Get total count
+    collection_count = self.vector_store._collection.count()
+    print(f"Total documents in ChromaDB: {collection_count}")
+    
+    # Sample some documents
+    try:
+        sample_results = self.vector_store.similarity_search_with_score(query, k=10)
+        print(f"\nSample search results for '{query}':")
+        
+        source_breakdown = {}
+        for i, (doc, score) in enumerate(sample_results):
+            source = doc.metadata.get('source', 'Unknown')
+            chunk_id = doc.metadata.get('chunk_id', 'Unknown')
+            page = doc.metadata.get('page', 'N/A')
+            unit_number = doc.metadata.get('unit_number', 'N/A')
+            
+            print(f"{i+1}. Score: {score:.3f} | Source: {source} | Page: {page} | Unit: {unit_number}")
+            print(f"   Chunk ID: {chunk_id}")
+            print(f"   Content preview: {doc.page_content[:100]}...")
+            print()
+            
+            # Track source distribution
+            if source not in source_breakdown:
+                source_breakdown[source] = 0
+            source_breakdown[source] += 1
+        
+        print("Source distribution in top 10 results:")
+        for source, count in source_breakdown.items():
+            print(f"  {source}: {count} chunks")
+            
+    except Exception as e:
+        print(f"Error during debug: {e}")
+    
+    print("=== End Debug ===\n")
