@@ -315,11 +315,12 @@ JSON only:"""
             ),
             Tool(
                 name="search_documents",
-                func=self.search_documents,
+                func=lambda query: self.search_documents(query, k=5),  # Ensure k=5 is used
                 description='''Use this tool to search relevant engineering documents, manuals, or reports based on a natural language query.
                 Input MUST be a string containing the search query. 
                 The query can include part numbers, technical concepts, or problem descriptions. 
-                Output is a list of relevant document chunks with their sources and content.'''
+                Output is a list of relevant document chunks with their sources and content.
+                This tool returns UP TO 5 relevant documents ranked by similarity.'''
             ),
             Tool(
                 name="get_maintenance_data",
@@ -485,7 +486,7 @@ Your response (ensure it's one of the valid JSON formats described above):"""
                 has_info_gathering_results = True
             
             # Format observation
-            obs_summary, max_obs_length = "", 300
+            obs_summary, max_obs_length = "", 1500
             if isinstance(observation, str):
                 obs_summary = (observation[:max_obs_length - 3] + "...") if len(observation) > max_obs_length else observation
             elif isinstance(observation, (list, dict)):

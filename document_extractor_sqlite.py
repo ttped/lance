@@ -269,11 +269,11 @@ if __name__ == "__main__":
     # --- TARGET DIRECTORY FOR PROCESSING ---
     # Update this path to the directory you want to scan
 	# Check if documents folder exists, otherwise use dummy files
-	documents_path = Path("./documents")
-	if documents_path.exists() and documents_path.is_dir():
-		directory_to_scan = documents_path
-	else:
-		directory_to_scan = Path("./dummy_files_dir")
+    documents_path = Path("./documents")
+    if documents_path.exists() and documents_path.is_dir():
+        directory_to_scan = documents_path
+    else:
+        directory_to_scan = Path("./dummy_files_dir")
     # --- --- --- --- --- --- --- --- --- ---
 
     directory_to_scan.mkdir(exist_ok=True) # Ensure dummy_files_dir exists for the example

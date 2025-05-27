@@ -232,44 +232,49 @@ class CitationRAG:
     def search_with_citations(
         self, 
         query: str, 
-        k: int = 3, # Default number of documents to retrieve
-        part_numbers: Optional[List[str]] = None # Optional context, not used for filtering here yet
+        k: int = 5,  # Update default to 5
+        part_numbers: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """Search documents and return results formatted with citation information."""
-        print(f"Searching RAG for: '{query}', k={k}" + (f", with part context: {part_numbers}" if part_numbers else ""))
+        print(f"[search_with_citations] Searching RAG for: '{query}', k={k}" + (f", with part context: {part_numbers}" if part_numbers else ""))
+        
+        # Check collection count before search
+        collection_count = self.vector_store._collection.count() if hasattr(self.vector_store, '_collection') else "unknown"
+        print(f"[search_with_citations] Vector store collection count: {collection_count}")
         
         # Perform similarity search
-        # Note: metadata filtering for Chroma can be added here if needed, using the `filter` argument.
         results_with_scores = self.vector_store.similarity_search_with_score(query, k=k)
+        print(f"[search_with_citations] Raw ChromaDB returned {len(results_with_scores)} results")
         
         formatted_results: List[Dict[str, Any]] = []
-        for doc, score in results_with_scores:
+        for i, (doc, score) in enumerate(results_with_scores):
+            print(f"[search_with_citations] Processing result {i+1}: score={score:.4f}, content_length={len(doc.page_content)}")
+            
             metadata = doc.metadata
-            source_file = metadata.get("source", "Unknown Source") # Should be filename
-            page_number = metadata.get("page", metadata.get("page_label", None)) # For PDFs
-            row_number = metadata.get("row", None) # For CSVs
+            source_file = metadata.get("source", "Unknown Source")
+            page_number = metadata.get("page", metadata.get("page_label", None))
+            row_number = metadata.get("row", None)
 
-            # Construct a human-readable citation string
             citation_str = f"[{source_file}"
-            if page_number is not None: # Check for None explicitly, as page 0 can be valid
+            if page_number is not None:
                 citation_str += f", Page {page_number}"
             elif row_number is not None:
-                 citation_str += f", Row {row_number}"
+                citation_str += f", Row {row_number}"
             citation_str += "]"
 
             formatted_results.append({
                 "content": doc.page_content,
-                "score": float(score), # Ensure score is a standard float
+                "score": float(score),
                 "source": source_file,
                 "page": page_number,
                 "row": row_number,
-                "chunk_id": metadata.get("chunk_id"), # Useful for unique reference
-                "file_path": metadata.get("file_path"), # Full path if needed by frontend
-                "metadata": metadata, # Include all metadata for flexibility
+                "chunk_id": metadata.get("chunk_id"),
+                "file_path": metadata.get("file_path"),
+                "metadata": metadata,
                 "citation_string": citation_str
             })
         
-        print(f"Found {len(formatted_results)} RAG results.")
+        print(f"[search_with_citations] Returning {len(formatted_results)} formatted results")
         return formatted_results
 
     def _load_documents_from_sqlite(self, db_path: str, table_name: str) -> List[Document]:
@@ -476,16 +481,16 @@ class OllamaEnhancedRAGAgent(EnhancedEngineeringAgent): # Inherits from the Olla
         print(f"OllamaEnhancedRAGAgent initialized. Using LLM '{ollama_model_name}' and Embeddings '{ollama_embed_model}'. Vector store: '{_vector_store_path}'")
 
     # Override the search_documents method from the base agent
-    def search_documents(self, query: str, part_numbers: List[str] = None) -> List[Dict[str, Any]]:
+    def search_documents(self, query: str, part_numbers: List[str] = None, k: int = 5) -> List[Dict[str, Any]]:
         """
         Override to use the citation-aware RAG search from CitationRAG,
         which is configured with Ollama embeddings.
         """
-        # The 'part_numbers' argument is available if the agent framework passes it.
-        # The tool definition in agent_ollama.py should be designed to accept this if needed,
-        # or the agent's LLM prompted to include part context in the query string.
-        return self.citation_rag.search_with_citations(
+        print(f"[search_documents] Searching with k={k} for query: '{query}'")
+        results = self.citation_rag.search_with_citations(
             query=query,
-            k=3, # Default number of documents to retrieve for the agent
-            part_numbers=part_numbers # Pass along for potential use in search_with_citations
+            k=k,
+            part_numbers=part_numbers
         )
+        print(f"[search_documents] Retrieved {len(results)} results from RAG")
+        return results
